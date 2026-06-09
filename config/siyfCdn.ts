@@ -1,8 +1,8 @@
-/** nicholasxdavis/siyf-cdn via jsDelivr — logos, teams, stats, favicons. */
+/** Sports-in-your-face/siyf-cdn via jsDelivr — logos, teams, stats, favicons. */
 function readCdnBase(): string {
   const fromProcess = typeof process !== 'undefined' ? process.env.SIYF_CDN_URL : undefined;
   const fromVite = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SIYF_CDN_URL : undefined;
-  return fromProcess ?? fromVite ?? 'https://cdn.jsdelivr.net/gh/nicholasxdavis/siyf-cdn@main';
+  return fromProcess ?? fromVite ?? 'https://cdn.jsdelivr.net/gh/Sports-in-your-face/siyf-cdn@main';
 }
 
 export const SIYF_CDN_BASE = readCdnBase();
