@@ -27,13 +27,33 @@ types.ts          Shared domain types
 
 CI runs on every push to `main` (`.github/workflows/engine-ci.yml`).
 
+## Chrome extension consumption
+
+`siyf-chrome` installs this package from GitHub and junctions it on `npm install`:
+
+```
+src/engine   → node_modules/@sports-in-your-face/siyf-engine/engine
+src/config   → …/config
+src/services → …/services
+src/utils    → …/utils
+```
+
+Update everyone's engine without a local rebuild:
+
+```bash
+cd siyf-chrome
+npm run engine:update
+```
+
+Push a fix here → users/extensions pick it up on next `engine:update` or fresh `npm ci`.
+
 ## Related repos
 
 | Repo | Role |
 |------|------|
 | [siyf-api](https://github.com/Sports-in-your-face/siyf-api) | Cloudflare worker proxy (ESPN, odds, BDL) |
 | [siyf-watch](https://github.com/Sports-in-your-face/siyf-watch) | Daily makesure cron + API pulse |
-| siyf-chrome | Extension UI (loads engine — migration in progress) |
+| siyf-chrome | Extension UI — consumes this package via `link-engine.mjs` |
 
 ## API URL
 
