@@ -31,7 +31,6 @@ export const MLB_RSS_FEEDS: MlbRssFeedDefinition[] = [
   { id: 'cbs_mlb', name: 'CBS Sports MLB', url: 'https://www.cbssports.com/rss/headlines/mlb/', role: 'playoff_crosscheck' },
   { id: 'yahoo_mlb', name: 'Yahoo Sports MLB', url: 'https://sports.yahoo.com/mlb/rss/', role: 'live_badge' },
   { id: 'mlbtr', name: 'MLB Trade Rumors', url: 'https://www.mlbtraderumors.com/feed', role: 'player_rumors' },
-  { id: 'rotoworld_mlb', name: 'Rotoworld MLB', url: 'https://www.nbcsportsedge.com/rss/mlb', role: 'roster_injuries' },
 ];
 
 async function getFeedItems(feed: MlbRssFeedDefinition): Promise<RssItem[]> {

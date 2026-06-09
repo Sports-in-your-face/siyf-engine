@@ -25,13 +25,10 @@ interface RssFeedDefinition {
 }
 
 export const RSS_FEEDS: RssFeedDefinition[] = [
-  { id: 'the_athletic', name: 'The Athletic NBA', url: 'https://theathletic.com/nba/rss', role: 'context_headline' },
+  { id: 'espn_nba', name: 'ESPN NBA', url: 'https://www.espn.com/espn/rss/nba/news', role: 'context_headline' },
   { id: 'cbs_sports', name: 'CBS Sports NBA', url: 'https://www.cbssports.com/rss/headlines/nba/', role: 'series_crosscheck' },
   { id: 'yahoo_sports', name: 'Yahoo Sports NBA', url: 'https://sports.yahoo.com/nba/rss/', role: 'live_badge' },
-  { id: 'hoopshype', name: 'HoopsHype Rumors', url: 'https://hoopshype.com/rumors/feed/', role: 'player_rumors' },
-  { id: 'rotoworld', name: 'Rotoworld (NBC Sports Edge)', url: 'https://www.nbcsportsedge.com/rss/nba', role: 'roster_injuries' },
-  { id: 'realgm', name: 'RealGM Transactions', url: 'https://basketball.realgm.com/rss/wiretap/transactions', role: 'roster_injuries' },
-  { id: 'hoopsrumors', name: 'HoopsRumors', url: 'https://www.hoopsrumors.com/feed', role: 'team_notes' },
+  { id: 'hoopsrumors', name: 'HoopsRumors', url: 'https://www.hoopsrumors.com/feed', role: 'player_rumors' },
 ];
 
 const log = createEngineLog('rss-enricher');

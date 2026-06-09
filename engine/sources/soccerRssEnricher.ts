@@ -28,9 +28,7 @@ interface SoccerRssFeedDefinition {
 export const SOCCER_RSS_FEEDS: SoccerRssFeedDefinition[] = [
   { id: 'espn_soccer', name: 'ESPN FC', url: 'https://www.espn.com/espn/rss/soccer/news', role: 'context_headline' },
   { id: 'bbc_football', name: 'BBC Sport Football', url: 'https://feeds.bbci.co.uk/sport/football/rss.xml', role: 'match_crosscheck' },
-  { id: 'goal_com', name: 'Goal.com', url: 'https://www.goal.com/feeds/en/news', role: 'live_badge' },
   { id: 'transfermarkt', name: 'Transfer News', url: 'https://www.transfermarkt.com/rss/news', role: 'player_rumors' },
-  { id: 'rotoworld_soccer', name: 'Rotoworld Soccer', url: 'https://www.nbcsportsedge.com/rss/soccer', role: 'roster_injuries' },
   { id: 'guardian_football', name: 'Guardian Football', url: 'https://www.theguardian.com/football/rss', role: 'team_notes' },
 ];
 

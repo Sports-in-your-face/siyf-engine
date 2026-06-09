@@ -26,7 +26,6 @@ export const NHL_RSS_FEEDS: NhlRssFeedDefinition[] = [
   { id: 'espn_nhl', name: 'ESPN NHL', url: 'https://www.espn.com/espn/rss/nhl/news', role: 'context_headline' },
   { id: 'cbs_nhl', name: 'CBS Sports NHL', url: 'https://www.cbssports.com/rss/headlines/nhl/', role: 'playoff_crosscheck' },
   { id: 'yahoo_nhl', name: 'Yahoo Sports NHL', url: 'https://sports.yahoo.com/nhl/rss/', role: 'live_badge' },
-  { id: 'rotoworld_nhl', name: 'Rotoworld NHL', url: 'https://www.nbcsportsedge.com/rss/nhl', role: 'roster_injuries' },
   { id: 'tsn_nhl', name: 'TSN NHL', url: 'https://www.tsn.ca/rss/nhl', role: 'team_notes' },
 ];
 

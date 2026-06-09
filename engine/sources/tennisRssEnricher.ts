@@ -15,7 +15,6 @@ interface TennisRssFeedDefinition {
 
 export const TENNIS_RSS_FEEDS: TennisRssFeedDefinition[] = [
   { id: 'espn_tennis', name: 'ESPN Tennis', url: 'https://www.espn.com/espn/rss/tennis/news' },
-  { id: 'tennis_com', name: 'Tennis.com', url: 'https://www.tennis.com/rss/news.xml' },
   { id: 'yahoo_tennis', name: 'Yahoo Tennis', url: 'https://sports.yahoo.com/tennis/rss/' },
 ];
 

@@ -30,7 +30,6 @@ export const NFL_RSS_FEEDS: NflRssFeedDefinition[] = [
   { id: 'cbs_nfl', name: 'CBS Sports NFL', url: 'https://www.cbssports.com/rss/headlines/nfl/', role: 'playoff_crosscheck' },
   { id: 'yahoo_nfl', name: 'Yahoo Sports NFL', url: 'https://sports.yahoo.com/nfl/rss/', role: 'live_badge' },
   { id: 'pft', name: 'Pro Football Talk', url: 'https://profootballtalk.nbcsports.com/feed/', role: 'player_rumors' },
-  { id: 'rotoworld_nfl', name: 'Rotoworld NFL', url: 'https://www.nbcsportsedge.com/rss/nfl', role: 'roster_injuries' },
 ];
 
 async function getFeedItems(feed: NflRssFeedDefinition): Promise<RssItem[]> {
