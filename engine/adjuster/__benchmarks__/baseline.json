@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "capturedAt": null,
+  "note": "Fill capturedAt and observed rates via npm run drift:capture on a live game day.",
+  "sports": {
+    "BASKETBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
+    "FOOTBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
+    "SOCCER": { "targetParseRate": 0.85, "observedParseRate": null, "sampleRawCount": null },
+    "BASEBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
+    "HOCKEY": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
+    "TENNIS": { "targetParseRate": 0.7, "observedParseRate": null, "sampleRawCount": null },
+    "GOLF": { "targetParseRate": 0.5, "observedParseRate": null, "sampleRawCount": null },
+    "FIGHTS": { "targetParseRate": 0.6, "observedParseRate": null, "sampleRawCount": null }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "401501",
+  "status": { "type": { "state": "in", "shortDetail": "Q2" }, "displayClock": "8:44" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "scoring": { "displayValue": "42" },
+        "team": { "displayName": "Los Angeles Lakers", "abbreviation": "LAL" }
+      },
+      {
+        "homeAway": "home",
+        "scoring": { "displayValue": "39" },
+        "team": { "displayName": "Boston Celtics", "abbreviation": "BOS" }
+      }
+    ]
+  }]
+}

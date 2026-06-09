@@ -68,7 +68,7 @@ export interface AnGame {
   home_score?: number | null;
 }
 
-interface AnScoreboardResponse {
+export interface AnScoreboardResponse {
   games?: AnGame[];
 }
 

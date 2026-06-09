@@ -1,0 +1,19 @@
+{
+  "id": "401999",
+  "leagues": [{ "abbreviation": "WNBA" }],
+  "status": { "type": { "state": "pre", "shortDetail": "Scheduled" } },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": { "displayValue": "0" },
+        "team": { "id": 20, "displayName": "Atlanta Dream", "abbreviation": "ATL" }
+      },
+      {
+        "homeAway": "home",
+        "score": { "displayValue": "0" },
+        "team": { "id": 19, "displayName": "Chicago Sky", "abbreviation": "CHI" }
+      }
+    ]
+  }]
+}

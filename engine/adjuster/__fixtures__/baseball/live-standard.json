@@ -1,0 +1,18 @@
+{
+  "id": "401595001",
+  "status": { "type": { "state": "in", "shortDetail": "Top 7th" }, "displayClock": "Top 7th" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": "3",
+        "team": { "displayName": "New York Yankees", "abbreviation": "NYY" }
+      },
+      {
+        "homeAway": "home",
+        "score": "2",
+        "team": { "displayName": "Boston Red Sox", "abbreviation": "BOS" }
+      }
+    ]
+  }]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "600001",
+  "name": "UFC 300",
+  "status": { "type": { "state": "pre", "shortDetail": "Scheduled" } },
+  "competitions": [{
+    "id": "c-ufc-1",
+    "type": { "abbreviation": "Lightweight" },
+    "competitors": [
+      {
+        "order": 1,
+        "athlete": {
+          "id": "f1",
+          "displayName": "Fighter A",
+          "shortName": "Fighter A",
+          "flag": { "abbreviation": "USA" }
+        },
+        "records": [{ "summary": "20-3-0" }]
+      },
+      {
+        "order": 2,
+        "athlete": {
+          "id": "f2",
+          "displayName": "Fighter B",
+          "shortName": "Fighter B",
+          "flag": { "abbreviation": "BRA" }
+        },
+        "records": [{ "summary": "18-2-0" }]
+      }
+    ]
+  }]
+}

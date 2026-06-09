@@ -1,0 +1,41 @@
+{
+  "games": [{
+    "id": 40123401,
+    "status": "inprogress",
+    "real_status": "inprogress",
+    "status_display": "Q2 5:32",
+    "away_team_id": 13,
+    "home_team_id": 2,
+    "teams": [
+      {
+        "id": 13,
+        "full_name": "Los Angeles Lakers",
+        "abbr": "LAL",
+        "logo": "https://example.com/lal.png",
+        "primary_color": "552583"
+      },
+      {
+        "id": 2,
+        "full_name": "Boston Celtics",
+        "abbr": "BOS",
+        "logo": "https://example.com/bos.png",
+        "primary_color": "007A33"
+      }
+    ],
+    "boxscore": {
+      "total_away_points": 52,
+      "total_home_points": 48,
+      "period": 2,
+      "clock": "5:32",
+      "line_score": { "away": [28, 24], "home": [26, 22] }
+    },
+    "broadcast": { "network": "ESPN", "network_short": "ESPN" },
+    "odds": [{
+      "type": "game",
+      "book_id": 68,
+      "spread_away": 3.5,
+      "spread_home": -3.5,
+      "total": 220.5
+    }]
+  }]
+}

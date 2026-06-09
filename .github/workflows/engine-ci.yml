@@ -1,0 +1,42 @@
+# Runs on every push/PR — no CLI for users. This IS the engine quality gate.
+name: Engine CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  drift-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run drift:check
+      - run: npm run drift:chaos
+      - run: npm run drift:merge
+      - run: npm run drift:kill
+      - run: npm run typecheck
+
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Live smoke (Ring 3)
+        env:
+          SIYF_LIVE_DRIFT: '1'
+          SIYF_API_URL: ${{ vars.SIYF_API_URL || 'https://siyf-api.nic-58f.workers.dev' }}
+        run: npm run drift:live

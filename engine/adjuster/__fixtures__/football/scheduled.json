@@ -1,0 +1,18 @@
+{
+  "id": "401671001",
+  "status": { "type": { "state": "pre", "shortDetail": "Sun, Sep 13 1:00 PM" } },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": "0",
+        "team": { "displayName": "Cleveland Browns", "abbreviation": "CLE", "id": "5" }
+      },
+      {
+        "homeAway": "home",
+        "score": "0",
+        "team": { "displayName": "Jacksonville Jaguars", "abbreviation": "JAX", "id": "30" }
+      }
+    ]
+  }]
+}

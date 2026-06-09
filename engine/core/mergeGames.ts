@@ -1,8 +1,13 @@
 import type { Game } from '../../types';
+import { parseDisplayScore } from '../../utils/coerce';
 import { enrichTeam, normalizeTeamAbbr, resolveTeamLogo } from '../sources/teamRegistry';
 
-function dedupeKey(game: Game): string {
-  return game.leagueSlug ? `${game.leagueSlug}:${game.id}` : game.id;
+/** Scope key for dedupeGamesById — disambiguates WNBA/NCAA and multi-league soccer ids. */
+export function gameDedupeKey(game: Game): string {
+  if (game.leagueSlug) return `${game.leagueSlug}:${game.id}`;
+  const sport = (game.sport ?? '').toUpperCase();
+  if (sport === 'WNBA' || sport === 'NCAA') return `${sport}:${game.id}`;
+  return game.id;
 }
 
 const STATUS_PRIORITY: Record<string, number> = { in: 0, pre: 1, post: 2 };
@@ -17,7 +22,7 @@ function pickPreferredGame(existing: Game, candidate: Game): Game {
 export function dedupeGamesById(games: Game[]): Game[] {
   const map = new Map<string, Game>();
   for (const game of games) {
-    const key = dedupeKey(game);
+    const key = gameDedupeKey(game);
     const existing = map.get(key);
     map.set(key, existing ? pickPreferredGame(existing, game) : game);
   }
@@ -37,8 +42,9 @@ export function gameMatchKey(awayAbbr: string, homeAbbr: string): string {
 }
 
 function parseScoreNum(score: number | string | null | undefined): number | null {
-  if (score === null || score === undefined || score === '') return null;
-  const n = typeof score === 'number' ? score : parseInt(String(score), 10);
+  const parsed = parseDisplayScore(score);
+  if (parsed === null || parsed === '') return null;
+  const n = typeof parsed === 'number' ? parsed : parseInt(String(parsed), 10);
   return Number.isNaN(n) ? null : n;
 }
 
@@ -50,7 +56,10 @@ function pickBetterScore(a: number | string | null, b: number | string | null, l
   return na ?? nb ?? a ?? b;
 }
 
-function enrichSide(side: Game['away']): Game['away'] {
+function enrichSide(side: Game['away'], game: Game): Game['away'] {
+  const gs = (game.sport ?? '').toUpperCase();
+  if (gs === 'WNBA' || gs === 'NCAA') return side;
+
   const reg = enrichTeam(side.abbr, {
     name: side.name,
     logo: side.logo,
@@ -75,8 +84,8 @@ export function mergeScoreboardGames(espnGames: Game[], bdlGames: Game[]): Game[
     const key = gameMatchKey(game.away.abbr, game.home.abbr);
     map.set(key, {
       ...game,
-      away: enrichSide(game.away),
-      home: enrichSide(game.home),
+      away: enrichSide(game.away, game),
+      home: enrichSide(game.home, game),
     });
   }
 
@@ -88,8 +97,8 @@ export function mergeScoreboardGames(espnGames: Game[], bdlGames: Game[]): Game[
     if (!existing) {
       map.set(key, {
         ...bdlGame,
-        away: enrichSide(bdlGame.away),
-        home: enrichSide(bdlGame.home),
+        away: enrichSide(bdlGame.away, bdlGame),
+        home: enrichSide(bdlGame.home, bdlGame),
       });
       continue;
     }

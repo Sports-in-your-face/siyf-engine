@@ -1,0 +1,19 @@
+{
+  "id": "704321",
+  "leagues": [{ "slug": "eng.1", "abbreviation": "EPL" }],
+  "status": { "type": { "state": "in", "shortDetail": "2nd Half" }, "displayClock": "67'" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": "1",
+        "team": { "displayName": "Arsenal", "abbreviation": "ARS" }
+      },
+      {
+        "homeAway": "home",
+        "score": "2",
+        "team": { "displayName": "Chelsea", "abbreviation": "CHE" }
+      }
+    ]
+  }]
+}

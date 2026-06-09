@@ -26,6 +26,23 @@ describe('dedupeGamesById', () => {
     expect(result[0].statusState).toBe('in');
   });
 
+  it('allows same id across WNBA and NBA', () => {
+    const nba = makeGame({
+      id: '99',
+      sport: 'NBA',
+      away: makeTeam({ name: 'Hawks', abbr: 'ATL' }),
+      home: makeTeam({ name: 'Bulls', abbr: 'CHI' }),
+    });
+    const wnba = makeGame({
+      ...nba,
+      sport: 'WNBA',
+      away: makeTeam({ name: 'Dream', abbr: 'ATL' }),
+      home: makeTeam({ name: 'Sky', abbr: 'CHI' }),
+    });
+
+    expect(dedupeGamesById([nba, wnba])).toHaveLength(2);
+  });
+
   it('allows same id across different leagues', () => {
     const epl = makeGame({
       id: '99',

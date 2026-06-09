@@ -1,0 +1,18 @@
+{
+  "id": "401671002",
+  "status": { "type": { "state": "in", "shortDetail": "Q3" }, "displayClock": "7:22" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": { "displayValue": "14" },
+        "team": { "displayName": "Kansas City Chiefs", "abbreviation": "KC" }
+      },
+      {
+        "homeAway": "home",
+        "score": { "displayValue": "10" },
+        "team": { "displayName": "Buffalo Bills", "abbreviation": "BUF" }
+      }
+    ]
+  }]
+}

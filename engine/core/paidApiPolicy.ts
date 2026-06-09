@@ -1,4 +1,5 @@
 import type { Game, PlayerDetails } from '../../types';
+import { scoreIsEmpty } from '../../utils/coerce';
 import type { GameDetail } from './types';
 
 /**
@@ -15,6 +16,8 @@ import type { GameDetail } from './types';
  * Odds caching: 10 min fresh TTL (client + edge) via `fetchCachedPaidOdds` / `odds` cache tier.
  *
  * Session telemetry: resilientFetch logs `[paid-api-used]` to the console; inspect via `__siyfPaidApi.getCounts()`.
+ * Daily budget: 200 paid calls/user/day (localStorage) + server-side IP cap on SIYF-API paid routes.
+ * Free sources (ESPN, Action Network) always run first — paid APIs are last-resort only.
  */
 
 /** Upstream APIs that consume paid quota — always try free sources first. */
@@ -67,9 +70,7 @@ export function detailNeedsOdds(detail: GameDetail): boolean {
 
 export function gameMissingScores(game: Game): boolean {
   if (game.statusState !== 'in') return false;
-  const away = game.away.score;
-  const home = game.home.score;
-  return away == null || away === '' || home == null || home === '';
+  return scoreIsEmpty(game.away.score) || scoreIsEmpty(game.home.score);
 }
 
 export function gamesNeedingScoreFallback(games: Game[]): Game[] {

@@ -1,0 +1,16 @@
+{
+  "games": [{
+    "game": {
+      "gameID": "ncaa-9001",
+      "gameState": "live",
+      "away": {
+        "name": { "short": "Duke" },
+        "score": 61
+      },
+      "home": {
+        "name": { "short": "UNC" },
+        "score": 58
+      }
+    }
+  }]
+}

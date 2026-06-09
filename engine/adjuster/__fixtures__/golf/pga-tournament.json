@@ -1,0 +1,29 @@
+{
+  "id": "g-401",
+  "name": "The Masters",
+  "status": { "type": { "state": "in", "shortDetail": "Round 3" } },
+  "competitions": [{
+    "competitors": [
+      {
+        "order": 1,
+        "score": "-8",
+        "athlete": {
+          "id": "g1",
+          "displayName": "Scottie Scheffler",
+          "flag": { "abbreviation": "USA" }
+        },
+        "linescores": [{ "value": "68" }, { "value": "70" }, { "value": "66" }]
+      },
+      {
+        "order": 2,
+        "score": "-6",
+        "athlete": {
+          "id": "g2",
+          "displayName": "Rory McIlroy",
+          "flag": { "abbreviation": "NIR" }
+        },
+        "linescores": [{ "value": "69" }, { "value": "71" }, { "value": "68" }]
+      }
+    ]
+  }]
+}

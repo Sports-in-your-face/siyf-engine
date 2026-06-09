@@ -1,5 +1,6 @@
 import { resolveProxyUrl } from '../../config/siyfApi';
 import { createEngineLog } from './engineUtils';
+import { canUsePaidApi, recordPaidApiGatePass, trackPaidApiHourly } from '../adjuster/paidKillSwitch';
 import { detectPaidApi, trackPaidApiUse } from './paidApiTelemetry';
 
 const log = createEngineLog('resilient-fetch');
@@ -105,7 +106,14 @@ export async function fetchJsonResilient<T>(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       if (attempt === 0 && paidApi) {
+        const gate = canUsePaidApi(paidApi);
+        if (!gate.allowed) {
+          log('warn', label, `paid API kill switch: ${gate.reason}`);
+          return null;
+        }
         trackPaidApiUse(paidApi, label);
+        trackPaidApiHourly(paidApi);
+        recordPaidApiGatePass(paidApi);
       }
 
       const res = await withTimeout(

@@ -1,5 +1,6 @@
 import { EspnGameLogSchema, EspnPlayerDetailsSchema, EspnSeasonStatisticsSchema } from '../sources/espnSchemas';
 import { getSportProfile } from '../../config/sportProfiles';
+import { coerceDisplayString } from '../../utils/coerce';
 import { getTeamAccent } from '../../utils/teamColors';
 import { refreshAllGameTimings, refreshGameTiming } from '../../utils/gameTime';
 import type { ResolvedTeam } from './types';
@@ -334,7 +335,8 @@ export function createParseGameLog(labelIndexFn: LabelIndexFn, log?: ReturnType<
         const date = meta.gameDate
           ? new Date(meta.gameDate).toLocaleDateString([], { month: 'short', day: 'numeric' })
           : '—';
-        const result = meta.gameResult && meta.score ? `${meta.gameResult} ${meta.score}` : meta.score ?? '—';
+        const scoreText = coerceDisplayString(meta.score, '—');
+        const result = meta.gameResult && scoreText !== '—' ? `${meta.gameResult} ${scoreText}` : scoreText;
         return {
           date,
           matchup: `${meta.atVs ?? ''} ${opponent}`.trim(),

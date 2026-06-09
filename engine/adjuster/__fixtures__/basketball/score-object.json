@@ -1,0 +1,18 @@
+{
+  "id": "401500",
+  "status": { "type": { "state": "in", "shortDetail": "Q3" }, "displayClock": "4:12" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": { "displayValue": "88" },
+        "team": { "displayName": "Cleveland Cavaliers", "abbreviation": "CLE", "id": "5" }
+      },
+      {
+        "homeAway": "home",
+        "score": { "displayValue": "91" },
+        "team": { "displayName": "Toronto Raptors", "abbreviation": "TOR", "id": "28" }
+      }
+    ]
+  }]
+}

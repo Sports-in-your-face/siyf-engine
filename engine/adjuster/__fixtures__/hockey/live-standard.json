@@ -1,0 +1,18 @@
+{
+  "id": "401802001",
+  "status": { "type": { "state": "in", "shortDetail": "P2" }, "displayClock": "12:34" },
+  "competitions": [{
+    "competitors": [
+      {
+        "homeAway": "away",
+        "score": "2",
+        "team": { "displayName": "Toronto Maple Leafs", "abbreviation": "TOR" }
+      },
+      {
+        "homeAway": "home",
+        "score": "1",
+        "team": { "displayName": "Montreal Canadiens", "abbreviation": "MTL" }
+      }
+    ]
+  }]
+}

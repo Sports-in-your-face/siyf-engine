@@ -1,0 +1,31 @@
+{
+  "name": "@sports-in-your-face/siyf-engine",
+  "version": "1.1.0",
+  "description": "SIYF sports engine — parsers, scoreboards, parse adjuster, live smoke",
+  "type": "module",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sports-in-your-face/siyf-engine.git"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "drift:check": "vitest run engine/adjuster",
+    "drift:chaos": "vitest run engine/adjuster/__tests__/chaosSimulator.test.ts",
+    "drift:merge": "vitest run engine/adjuster/__tests__/mergeSimulation.test.ts",
+    "drift:kill": "vitest run engine/adjuster/__tests__/paidKillSwitchStress.test.ts",
+    "drift:live": "cross-env SIYF_LIVE_DRIFT=1 vitest run engine/adjuster/__tests__/liveSmoke.test.ts"
+  },
+  "exports": {
+    ".": "./engine/index.ts",
+    "./adjuster": "./engine/adjuster/index.ts",
+    "./engine": "./engine/index.ts"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.6"
+  }
+}

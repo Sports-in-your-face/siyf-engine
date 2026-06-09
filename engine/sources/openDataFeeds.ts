@@ -1,5 +1,6 @@
 import { externalFetchUrl } from '../../config/siyfApi';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { finishParserBatch } from '../adjuster/recordParserBatch';
 import { parseEventsForSport } from '../../services/parsers/parseGameEvent';
 import { coerceDisplayString, parseDisplayScore } from '../../utils/coerce';
 import type { Game, LeagueContext } from '../../types';
@@ -19,17 +20,38 @@ function ncaaScoreboardUrl(date = new Date()): string {
   return externalFetchUrl(`https://data.ncaa.com${path}`);
 }
 
-function parseNcaaGames(raw: any): Game[] {
+export interface SupplementalParseResult {
+  games: Game[];
+  rawCount: number;
+  skipped: number;
+}
+
+export function parseNcaaScoreboardRaw(raw: any): SupplementalParseResult {
   const games: Game[] = [];
-  for (const entry of raw?.games ?? []) {
+  const entries = raw?.games ?? [];
+  let skipped = 0;
+
+  for (const entry of entries) {
     const g = entry?.game ?? entry;
-    if (!g) continue;
+    if (!g) {
+      skipped += 1;
+      continue;
+    }
     const away = g.away ?? g.awayTeam;
     const home = g.home ?? g.homeTeam;
-    if (!away || !home) continue;
+    if (!away || !home) {
+      skipped += 1;
+      continue;
+    }
 
-    const awayName = away.names?.short ?? away.name?.short ?? away.name ?? 'Away';
-    const homeName = home.names?.short ?? home.name?.short ?? home.name ?? 'Home';
+    const awayName = coerceDisplayString(
+      away.names?.short ?? away.name?.short ?? away.name,
+      'Away',
+    );
+    const homeName = coerceDisplayString(
+      home.names?.short ?? home.name?.short ?? home.name,
+      'Home',
+    );
     const state = String(g.gameState ?? g.status ?? '').toLowerCase();
     const statusState =
       state.includes('final') ? 'post' as const
@@ -45,18 +67,39 @@ function parseNcaaGames(raw: any): Game[] {
       away: {
         name: awayName,
         abbr: awayName.slice(0, 4).toUpperCase(),
-        score: away.score ?? away.points ?? null,
-        logo: away.logo ?? away.logoUrl,
+        score: parseDisplayScore(away.score ?? away.points),
+        logo: coerceDisplayString(away.logo ?? away.logoUrl),
       },
       home: {
         name: homeName,
         abbr: homeName.slice(0, 4).toUpperCase(),
-        score: home.score ?? home.points ?? null,
-        logo: home.logo ?? home.logoUrl,
+        score: parseDisplayScore(home.score ?? home.points),
+        logo: coerceDisplayString(home.logo ?? home.logoUrl),
       },
     });
   }
-  return games;
+
+  return { games, rawCount: entries.length, skipped };
+}
+
+function parseNcaaGames(raw: any): Game[] {
+  const result = parseNcaaScoreboardRaw(raw);
+  if (result.rawCount) {
+    finishParserBatch('NCAA', result.games, { rawCount: result.rawCount, skipped: result.skipped });
+  }
+  return result.games;
+}
+
+export function parseWnbaEspnRaw(raw: any): SupplementalParseResult {
+  const events = raw?.events ?? [];
+  if (!events.length) return { games: [], rawCount: 0, skipped: 0 };
+  const games = parseEventsForSport(events, 'BASKETBALL', { telemetrySport: 'WNBA' })
+    .map((g) => ({ ...g, sport: 'WNBA' as const }));
+  return {
+    games,
+    rawCount: events.length,
+    skipped: Math.max(0, events.length - games.length),
+  };
 }
 
 async function fetchWnbaOfficial(): Promise<Game[]> {
@@ -68,7 +111,7 @@ async function fetchWnbaOfficial(): Promise<Game[]> {
     const raw = await fetchJsonResilient<any>(url, undefined, { label: 'wnba-official', retries: 1, timeout: 5_000 });
     const events = raw?.scoreboard?.games ?? raw?.games ?? raw?.events;
     if (Array.isArray(events) && events.length) {
-      return events.map((g: any) => {
+      const games = events.map((g: any) => {
         const away = g.awayTeam ?? g.away ?? {};
         const home = g.homeTeam ?? g.home ?? {};
         const state = String(g.gameStatus ?? g.status ?? '').toLowerCase();
@@ -96,6 +139,8 @@ async function fetchWnbaOfficial(): Promise<Game[]> {
           },
         } satisfies Game;
       });
+      finishParserBatch('WNBA', games, { rawCount: events.length, skipped: 0 });
+      return games;
     }
   }
   return [];
@@ -104,7 +149,8 @@ async function fetchWnbaOfficial(): Promise<Game[]> {
 async function fetchWnbaEspn(): Promise<Game[]> {
   const raw = await fetchJsonResilient<any>(ESPN_WNBA, undefined, { label: 'wnba-espn', retries: 2 });
   if (!raw?.events?.length) return [];
-  return parseEventsForSport(raw.events, 'BASKETBALL').map((g) => ({ ...g, sport: 'WNBA' }));
+  return parseEventsForSport(raw.events, 'BASKETBALL', { telemetrySport: 'WNBA' })
+    .map((g) => ({ ...g, sport: 'WNBA' }));
 }
 
 export async function fetchWnbaScoreboard(): Promise<Game[]> {

@@ -1,4 +1,5 @@
 import type { Game } from '../../types';
+import { scoreToNumber } from '../../utils/coerce';
 import type { GameLiveState } from './cacheTiers';
 import { cacheBustKey, cacheBustTag } from './cache';
 
@@ -19,8 +20,8 @@ const lastSeen = new Map<string, GameSnapshot>();
 function snapshotFromGame(game: Game): GameSnapshot {
   return {
     statusState: game.statusState ?? 'pre',
-    awayScore: Number(game.away.score ?? 0),
-    homeScore: Number(game.home.score ?? 0),
+    awayScore: scoreToNumber(game.away.score),
+    homeScore: scoreToNumber(game.home.score),
     clock: game.clock ?? '',
   };
 }
