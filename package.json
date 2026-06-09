@@ -32,6 +32,7 @@
     "./types": "./types.ts"
   },
   "devDependencies": {
+    "@types/node": "^24.12.3",
     "cross-env": "^7.0.3",
     "typescript": "^6.0.3",
     "vitest": "^3.2.6",
