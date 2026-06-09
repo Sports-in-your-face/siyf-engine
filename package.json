@@ -1,6 +1,6 @@
 {
   "name": "@sports-in-your-face/siyf-engine",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "SIYF sports engine — parsers, scoreboards, parse adjuster, live smoke",
   "type": "module",
   "private": false,
@@ -20,8 +20,16 @@
   },
   "exports": {
     ".": "./engine/index.ts",
+    "./engine": "./engine/index.ts",
+    "./engine/*": "./engine/*",
     "./adjuster": "./engine/adjuster/index.ts",
-    "./engine": "./engine/index.ts"
+    "./adjuster/*": "./engine/adjuster/*",
+    "./services/api": "./services/api.ts",
+    "./services/scoreboardPoller": "./services/scoreboardPoller.ts",
+    "./services/parsers/*": "./services/parsers/*",
+    "./config/*": "./config/*",
+    "./utils/*": "./utils/*",
+    "./types": "./types.ts"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
