@@ -54,6 +54,16 @@ function cacheTtlFor(path: string): number {
   return isMetaPath(path) ? META_JSON_TTL_MS : Number.POSITIVE_INFINITY;
 }
 
+/** jsDelivr (and most public CDNs) reject cross-origin If-None-Match in CORS preflight. */
+function canUseConditionalRevalidation(url: string): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return new URL(url).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchCdnJson<T>(path: string, version?: number): Promise<T | null> {
   const url = cdnUrl(path, version);
   const ttl = cacheTtlFor(path);
@@ -63,7 +73,9 @@ export async function fetchCdnJson<T>(path: string, version?: number): Promise<T
   }
 
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (cached?.etag) headers['If-None-Match'] = cached.etag;
+  if (cached?.etag && canUseConditionalRevalidation(url)) {
+    headers['If-None-Match'] = cached.etag;
+  }
 
   const res = await fetch(url, { headers });
   if (res.status === 304 && cached) return cached.data as T;

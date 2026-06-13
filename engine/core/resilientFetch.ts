@@ -8,10 +8,58 @@ const log = createEngineLog('resilient-fetch');
 
 const inFlight = new Map<string, Promise<unknown>>();
 
+let coalesceHits = 0;
+let executions = 0;
+
+export interface InFlightStats {
+  inFlight: number;
+  coalesceHits: number;
+  executions: number;
+}
+
+export function getInFlightStats(): InFlightStats {
+  return {
+    inFlight: inFlight.size,
+    coalesceHits,
+    executions,
+  };
+}
+
+/** Stable dedupe keys for hot-loop fetch paths. */
+export function coalesceKeyScoreboard(cacheKey: string): string {
+  return `scoreboard:${cacheKey}`;
+}
+
+export function coalesceKeyGame(gameId: string): string {
+  return `game:${gameId}`;
+}
+
+export function coalesceKeyEspnEvent(eventId: string): string {
+  return `espn:event:${eventId}`;
+}
+
+export function coalesceKeyFetchGames(
+  sport: string,
+  options?: { bypassCache?: boolean; bypassHashGate?: boolean },
+): string {
+  const bypass = options?.bypassCache ? 'bc' : 'c';
+  const hash = options?.bypassHashGate ? 'bh' : 'h';
+  return `fetchGames:${sport}:${bypass}:${hash}`;
+}
+
+function fetchDedupeKey(url: string, opts?: ResilientFetchOptions): string {
+  const resolved = resolveProxyUrl(url) || url;
+  return opts?.bypassCache ? `fetch:${resolved}:bypass` : `fetch:${resolved}`;
+}
+
 export function dedupeRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const existing = inFlight.get(key);
-  if (existing) return existing as Promise<T>;
+  if (existing) {
+    coalesceHits += 1;
+    return existing as Promise<T>;
+  }
 
+  executions += 1;
   const promise = fn().finally(() => {
     inFlight.delete(key);
   });
@@ -84,9 +132,12 @@ export async function fetchJsonResilient<T>(
   init?: RequestInit,
   opts?: ResilientFetchOptions,
 ): Promise<T | null> {
-  return governorFetch(
-    () => fetchJsonResilientInner<T>(url, init, opts),
-    { label: opts?.label, priority: inferPriority(opts?.label) },
+  const key = fetchDedupeKey(url, opts);
+  return dedupeRequest(key, () =>
+    governorFetch(
+      () => fetchJsonResilientInner<T>(url, init, opts),
+      { label: opts?.label, priority: inferPriority(opts?.label) },
+    ),
   );
 }
 
@@ -211,6 +262,8 @@ export function resetResilientFetchBackoff(): void {
 /** Clear in-flight dedupe map (for tests). */
 export function resetInFlightRequests(): void {
   inFlight.clear();
+  coalesceHits = 0;
+  executions = 0;
 }
 
 export async function fetchAllSettled<T>(
@@ -221,4 +274,20 @@ export async function fetchAllSettled<T>(
     name: tasks[i].name,
     data: r.status === 'fulfilled' ? (r.value ?? null) : null,
   }));
+}
+
+declare global {
+  interface Window {
+    __siyfCoalesce?: {
+      getStats: typeof getInFlightStats;
+      reset: typeof resetInFlightRequests;
+    };
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.__siyfCoalesce = {
+    getStats: getInFlightStats,
+    reset: resetInFlightRequests,
+  };
 }

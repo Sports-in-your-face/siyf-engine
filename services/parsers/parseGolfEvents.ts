@@ -123,6 +123,42 @@ export function parseGolfEvents(events: any[], tour = 'PGA'): Game[] {
           ? { competitors: event.competitors, status: event.status }
           : null);
       if (!competition?.competitors?.length) {
+        const state = competition?.status?.type?.state ?? event.status?.type?.state;
+        if (state === 'pre') {
+          const { status, statusState, clock } = parseStatus(event);
+          const timingResult = enrichGameWithTiming(
+            { statusState, clock },
+            extractEspnStartCandidates(event, competition),
+          );
+          const venue = event.venue?.displayName ?? event.courses?.[0]?.name;
+          const tournamentName = event.name ?? event.shortName ?? 'Tournament';
+          const broadcast = event.broadcasts?.[0]?.names?.join(', ')
+            ?? competition?.broadcasts?.[0]?.names?.join(', ');
+          const context = parseGolfGameContext(tournamentName, broadcast, statusState);
+          const subtitle = context?.headline ?? [tournamentName, venue].filter(Boolean).join(' · ');
+
+          games.push({
+            id: String(event.id),
+            sport: tour,
+            status,
+            statusState,
+            clock: timingResult.clock,
+            timing: timingResult.timing,
+            away: {
+              name: tournamentName,
+              abbr: tour.slice(0, 3).toUpperCase(),
+              score: null,
+            },
+            home: { name: 'Field', abbr: 'FLD', score: null },
+            leaderboard: [],
+            tournamentName,
+            subtitle,
+            venue,
+            broadcast,
+            context,
+          });
+          continue;
+        }
         batch.skipped += 1;
         continue;
       }

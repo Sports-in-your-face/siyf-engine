@@ -48,8 +48,37 @@ export { sniffField, CLOCK_RULE, type SniffRule, type SniffResult } from './valu
 
 export { fuzzyResolveField, type FuzzyMatch } from './fuzzyResolver';
 export { resolveFieldWaterfall, type ResolveSource, type ResolveWaterfallResult } from './schemaResolver';
+export {
+  promoteToRegistry,
+  getHotPathPaths,
+  getHotPathStats,
+  getHotPathEntries,
+  resetHotPathRegistry,
+  type HotPathEntry,
+  type HotPathStats,
+} from './hotPathRegistry';
 export { mergeAliasPaths, loadCdnAliasOverlay, resetCdnAliasOverlay } from './cdnAliases';
 export { shouldSkipScoreboardEnrichment } from './deltaFetch';
+
+export {
+  parseEventsWithHashGate,
+  requestBypassHashGate,
+  getHashGateStats,
+  resetDeltaHashCache,
+  hashRaw,
+  hashEvent,
+  type HashGateStats,
+} from '../core/deltaHash';
+
+export {
+  dedupeRequest,
+  getInFlightStats,
+  coalesceKeyScoreboard,
+  coalesceKeyGame,
+  coalesceKeyEspnEvent,
+  coalesceKeyFetchGames,
+  type InFlightStats,
+} from '../core/resilientFetch';
 
 export { ESPN_COMPETITOR_ALIASES, ESPN_EVENT_ALIASES } from './registry';
 export type { EspnCompetitorField } from './registry';

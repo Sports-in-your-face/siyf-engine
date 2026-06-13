@@ -1,7 +1,7 @@
 import { getEspnEvents } from './core/espnEventTypes';
-import { parseEventsForSport } from '../services/parsers/parseGameEvent';
+import { parseEventsWithHashGate } from './core/deltaHash';
 import { cacheBustKey, cacheGet, cacheGetStale, cacheIsFresh, cacheKey, cacheSetWithProfile, withCache } from './core/cache';
-import { dedupeRequest } from './core/resilientFetch';
+import { dedupeRequest, coalesceKeyGame, coalesceKeyScoreboard } from './core/resilientFetch';
 import { syncCacheFromScoreboard } from './core/cacheInvalidation';
 import { shouldSkipScoreboardEnrichment } from './adjuster/deltaFetch';
 import { CACHE_PROFILES, profileForGameState } from './core/cacheTiers';
@@ -93,7 +93,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
       espnRaw = raw;
       games = config.mapScheduleGames
         ? config.mapScheduleGames(espnEvents, raw)
-        : parseEventsForSport(espnEvents, config.sport);
+        : parseEventsWithHashGate(espnEvents, config.sport);
       if (games.length) sources.push('espn');
     }
 
@@ -222,7 +222,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   function scheduleScoreboardRevalidate(): void {
     if (scoreboardRevalidateInFlight) return;
     scoreboardRevalidateInFlight = true;
-    void dedupeRequest(`scoreboard:${config.scoreboardCacheKey}`, loadScoreboard).finally(() => {
+    void dedupeRequest(coalesceKeyScoreboard(config.scoreboardCacheKey), loadScoreboard).finally(() => {
       scoreboardRevalidateInFlight = false;
     });
   }
@@ -237,10 +237,14 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
       return { data: finalizeScoreboardGames(cached), sources: ['cache'] };
     }
 
-    return dedupeRequest(`scoreboard:${cacheKey}`, loadScoreboard);
+    return dedupeRequest(coalesceKeyScoreboard(cacheKey), loadScoreboard);
   }
 
   async function getGameDetail(game: Game): Promise<EngineResult<GameDetail>> {
+    return dedupeRequest(coalesceKeyGame(game.id), () => getGameDetailOnce(game));
+  }
+
+  async function getGameDetailOnce(game: Game): Promise<EngineResult<GameDetail>> {
     const cacheK = config.detailCacheKey(game);
 
     const detailProfile = profileForGameState(game.statusState);
@@ -715,7 +719,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
     const games = config.mapScheduleGames
       ? config.mapScheduleGames(payload.events, res.data)
-      : parseEventsForSport(payload.events, config.sport);
+      : parseEventsWithHashGate(payload.events, config.sport);
 
     const enriched = caps.pipeline.teamLogoEnrichment
       ? games.map(enrichGameTeams)

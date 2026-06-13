@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchJsonResilient, resetResilientFetchBackoff } from '../resilientFetch';
+import {
+  dedupeRequest,
+  fetchJsonResilient,
+  getInFlightStats,
+  resetInFlightRequests,
+  resetResilientFetchBackoff,
+} from '../resilientFetch';
+import { getGovernorStats, resetGovernor } from '../apiGovernor';
 
 describe('fetchJsonResilient transient errors', () => {
   beforeEach(() => {
     resetResilientFetchBackoff();
+    resetInFlightRequests();
+    resetGovernor();
     vi.restoreAllMocks();
   });
 
@@ -60,5 +69,58 @@ describe('fetchJsonResilient transient errors', () => {
         throwOnTransientError: true,
       }),
     ).rejects.toThrow('network down');
+  });
+});
+
+describe('dedupeRequest coalescing', () => {
+  beforeEach(() => {
+    resetInFlightRequests();
+    resetGovernor();
+    vi.restoreAllMocks();
+  });
+
+  it('runs fn once for 10 parallel calls with the same key', async () => {
+    let runs = 0;
+    const fn = vi.fn(async () => {
+      runs += 1;
+      await new Promise((r) => setTimeout(r, 10));
+      return 'ok';
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => dedupeRequest('test-key', fn)),
+    );
+
+    expect(results).toEqual(Array(10).fill('ok'));
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(getInFlightStats().coalesceHits).toBe(9);
+    expect(getInFlightStats().executions).toBe(1);
+  });
+
+  it('coalesces parallel fetchJsonResilient before governor spends tokens', async () => {
+    let fetchCount = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        fetchCount += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        fetchJsonResilient('/api/espn/apis/site/v2/sports/basketball/nba/scoreboard', undefined, {
+          label: 'espn-scoreboard',
+          retries: 0,
+        }),
+      ),
+    );
+
+    expect(fetchCount).toBe(1);
+    expect(getGovernorStats().processed).toBe(1);
+    expect(getInFlightStats().coalesceHits).toBe(9);
   });
 });

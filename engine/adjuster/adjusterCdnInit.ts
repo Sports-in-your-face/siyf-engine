@@ -1,5 +1,6 @@
 import { fetchCdnManifest } from '../../config/siyfCdn';
 import { loadCdnAliasOverlay, resetCdnAliasOverlay } from './cdnAliases';
+import { resetHotPathRegistry } from './hotPathRegistry';
 import { loadCdnPauseKeywordsOverlay } from './statusClassifier';
 import { loadAdjusterSchemaFromCdn } from '../acl/schemaVersion';
 
@@ -21,6 +22,7 @@ export async function refreshAdjusterCdn(): Promise<void> {
   if (fieldVersion !== lastFieldVersion) {
     lastFieldVersion = fieldVersion;
     resetCdnAliasOverlay();
+    resetHotPathRegistry();
     await loadCdnAliasOverlay();
   }
 
@@ -31,6 +33,7 @@ export async function refreshAdjusterCdn(): Promise<void> {
 
   if (schemaVersion !== lastSchemaVersion) {
     lastSchemaVersion = schemaVersion;
+    resetHotPathRegistry();
     await loadAdjusterSchemaFromCdn();
   }
 }

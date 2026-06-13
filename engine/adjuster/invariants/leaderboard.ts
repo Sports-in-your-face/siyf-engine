@@ -14,13 +14,15 @@ export function validateLeaderboardLayout(game: Game): ParseInvariantIssue[] {
   issues.push(...validateCompetitor(game.home, 'home', id, { allowTbd, allowFieldPlaceholder: true }));
 
   if (!game.leaderboard?.length) {
-    issues.push({
-      code: 'leaderboard.missing',
-      message: 'Golf game missing leaderboard entries',
-      severity: 'error',
-      field: 'leaderboard',
-      gameId: id,
-    });
+    if (game.statusState !== 'pre') {
+      issues.push({
+        code: 'leaderboard.missing',
+        message: 'Golf game missing leaderboard entries',
+        severity: 'error',
+        field: 'leaderboard',
+        gameId: id,
+      });
+    }
     return issues;
   }
 

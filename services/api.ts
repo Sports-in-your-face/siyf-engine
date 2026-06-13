@@ -15,6 +15,8 @@ import type {
 } from '../types';
 import { getEspnEvents } from '../engine/core/espnEventTypes';
 import { parseEventsForSport } from './parsers/parseGameEvent';
+import { parseEventsWithHashGate, requestBypassHashGate } from '../engine/core/deltaHash';
+import { coalesceKeyFetchGames, dedupeRequest } from '../engine/core/resilientFetch';
 import { coerceDisplayString } from '../utils/coerce';
 import { getTeamAccent } from '../utils/teamColors';
 import { filterRecentGames } from '../utils/gameFilters';
@@ -70,12 +72,19 @@ export type SportType = keyof typeof SPORT_ENDPOINTS;
 export interface FetchGamesOptions {
   /** Skip in-memory and edge cache for this scoreboard fetch (resume burst). */
   bypassCache?: boolean;
+  /** Force re-parse even when raw ESPN event JSON is unchanged. */
+  bypassHashGate?: boolean;
 }
 
 export async function fetchGames(sport: SportType, options?: FetchGamesOptions): Promise<Game[]> {
+  return dedupeRequest(coalesceKeyFetchGames(sport, options), () => fetchGamesOnce(sport, options));
+}
+
+async function fetchGamesOnce(sport: SportType, options?: FetchGamesOptions): Promise<Game[]> {
   if (isEngineSport(sport)) {
     try {
       if (options?.bypassCache) getEngine(sport).bustScoreboardCache();
+      if (options?.bypassCache || options?.bypassHashGate) requestBypassHashGate();
       const { data } = await getEngine(sport).getScoreboard();
       return filterRecentGames(dedupeGamesById(data));
     } catch (err) {
@@ -98,7 +107,7 @@ export async function fetchGames(sport: SportType, options?: FetchGamesOptions):
     const cdnKey = APP_SPORT_TO_CDN[sport];
     if (cdnKey) await ensureTeamRegistry(cdnKey);
     const events = getEspnEvents(data);
-    const parsed = parseEventsForSport(events, sport);
+    const parsed = parseEventsWithHashGate(events, sport);
     const games = filterRecentGames(
       dedupeGamesById(cdnKey ? enrichGamesTeamsFromCdn(sport, parsed) : parsed),
     );

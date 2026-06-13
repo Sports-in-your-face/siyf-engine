@@ -72,6 +72,18 @@ describe('layout validators', () => {
     expect(hasBlockingIssues(issues)).toBe(true);
   });
 
+  it('leaderboard layout allows empty field before tournament starts', () => {
+    const issues = validateLeaderboardLayout(teamGame({
+      sport: 'PGA',
+      statusState: 'pre',
+      tournamentName: 'U.S. Open',
+      home: { name: 'Field', abbr: 'FLD', score: null },
+      leaderboard: [],
+    }));
+    expect(issues.some((i) => i.code === 'leaderboard.missing')).toBe(false);
+    expect(hasBlockingIssues(issues)).toBe(false);
+  });
+
   it('leaderboard layout allows Field placeholder home team', () => {
     const issues = validateLeaderboardLayout(teamGame({
       sport: 'PGA',

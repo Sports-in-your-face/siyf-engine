@@ -48,4 +48,14 @@ describe('scoreboardPoller chrono integration', () => {
       expect(fetchGamesMock.mock.calls.some((c) => c[1]?.bypassCache === true)).toBe(true);
     });
   });
+
+  it('coalesces 50 parallel fetchScoreboardOnce into one fetchGames call', async () => {
+    fetchGamesMock.mockResolvedValue([game('g1')]);
+
+    await Promise.all(
+      Array.from({ length: 50 }, () => fetchScoreboardOnce('BASEBALL')),
+    );
+
+    expect(fetchGamesMock).toHaveBeenCalledTimes(1);
+  });
 });

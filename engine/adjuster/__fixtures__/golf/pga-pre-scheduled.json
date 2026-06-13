@@ -1,0 +1,10 @@
+{
+  "id": "g-402",
+  "name": "U.S. Open",
+  "status": { "type": { "state": "pre", "shortDetail": "Thu 8:00 AM ET" } },
+  "competitions": [{
+    "competitors": [],
+    "status": { "type": { "state": "pre" } }
+  }],
+  "venue": { "displayName": "Pinehurst No. 2" }
+}
