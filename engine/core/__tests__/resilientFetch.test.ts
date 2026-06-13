@@ -59,6 +59,26 @@ describe('fetchJsonResilient transient errors', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('returns null on XML response without throwing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('<?xml version="1.0"?><scoreboard/>', {
+          status: 200,
+          headers: { 'Content-Type': 'application/xml' },
+        }),
+      ),
+    );
+
+    const result = await fetchJsonResilient('/api/fetch?url=https://www.wnba.com/api/live/scoreboard', undefined, {
+      label: 'wnba-official',
+      retries: 1,
+    });
+
+    expect(result).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('rethrows network errors when throwOnTransientError is set', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
 

@@ -238,7 +238,23 @@ async function fetchJsonResilientInner<T>(
         }
         return null;
       }
-      return (await res.json()) as T;
+      const text = await res.text();
+      const trimmed = text.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith('<')) {
+        log('warn', label, 'non-JSON response — skipping');
+        return null;
+      }
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch (parseErr) {
+        if (attempt < retries) {
+          await sleep(retryDelay * (attempt + 1));
+          continue;
+        }
+        log('warn', label, 'invalid JSON response', parseErr);
+        return null;
+      }
     } catch (err) {
       if (attempt < retries) {
         await sleep(retryDelay * (attempt + 1));
