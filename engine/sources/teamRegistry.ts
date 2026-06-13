@@ -1,5 +1,6 @@
 import { fetchCdnJson, resolveCdnAsset, type CdnTeamSport } from '../../config/siyfCdn';
 import type { ResolvedTeam } from '../core/types';
+import { DEFAULT_SOCCER_LEAGUE } from './espnSoccerSource';
 
 export type TeamRegistryKey = CdnTeamSport;
 
@@ -74,6 +75,7 @@ export async function preloadTeamRegistries(): Promise<void> {
     ensureTeamRegistry('nba'),
     ensureTeamRegistry('nfl'),
     ensureTeamRegistry('epl'),
+    ensureTeamRegistry('mls'),
     ensureTeamRegistry('mlb'),
     ensureTeamRegistry('nhl'),
     loadSoccerLeagueLabels(),
@@ -200,29 +202,33 @@ export function enrichNflTeam(
   return enrichFromRegistry('nfl', abbr, partial);
 }
 
-// Soccer / EPL
+function soccerRegistryKey(): TeamRegistryKey {
+  return DEFAULT_SOCCER_LEAGUE === 'usa.1' ? 'mls' : 'epl';
+}
+
+// Soccer (MLS or EPL based on league config)
 export function normalizeSoccerTeamAbbr(abbr: string): string {
-  return normalizeAbbrFor('epl', abbr);
+  return normalizeAbbrFor(soccerRegistryKey(), abbr);
 }
 
 export function getAllSoccerTeams(): ResolvedTeam[] {
-  const teams = getAllFromRegistry('epl');
+  const teams = getAllFromRegistry(soccerRegistryKey());
   return teams.filter((t, i, arr) => arr.findIndex((x) => x.abbr === t.abbr) === i);
 }
 
 export function resolveSoccerTeam(query: string): ResolvedTeam | undefined {
-  return resolveFromRegistry('epl', query);
+  return resolveFromRegistry(soccerRegistryKey(), query);
 }
 
 export function resolveSoccerTeamLogo(abbr: string, existing?: string): string {
-  return resolveTeamLogoFor('epl', abbr, existing);
+  return resolveTeamLogoFor(soccerRegistryKey(), abbr, existing);
 }
 
 export function enrichSoccerTeam(
   abbr: string,
   partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
 ): ResolvedTeam {
-  return enrichFromRegistry('epl', abbr, partial);
+  return enrichFromRegistry(soccerRegistryKey(), abbr, partial);
 }
 
 // MLB

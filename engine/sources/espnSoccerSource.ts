@@ -19,7 +19,11 @@ import type {
 import { extractEspnLeagueSlug, type EspnCompetitionRef, type EspnScoreboardEvent } from '../core/espnEventTypes';
 import { enrichSoccerTeam, resolveSoccerTeamLogo } from './teamRegistry';
 
-export const DEFAULT_SOCCER_LEAGUE = 'eng.1';
+export const DEFAULT_SOCCER_LEAGUE = (() => {
+  const fromProcess = typeof process !== 'undefined' ? process.env.SIYF_SOCCER_LEAGUE : undefined;
+  const fromVite = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SIYF_SOCCER_LEAGUE : undefined;
+  return fromProcess ?? fromVite ?? 'eng.1';
+})();
 
 function basePath(league: string) {
   return `/api/espn/apis/site/v2/sports/soccer/${league}`;

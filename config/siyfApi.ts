@@ -3,7 +3,7 @@ function readApiBase(): string {
   const fromVite = typeof import.meta !== 'undefined'
     ? (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_SIYF_API_URL
     : undefined;
-  return fromProcess ?? fromVite ?? 'https://siyf-api.nic-58f.workers.dev';
+  return fromProcess ?? fromVite ?? 'https://siyf-web-api.nic-58f.workers.dev';
 }
 
 export const SIYF_API_BASE = readApiBase();

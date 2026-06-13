@@ -2,7 +2,7 @@
 function readCdnBase(): string {
   const fromProcess = typeof process !== 'undefined' ? process.env.SIYF_CDN_URL : undefined;
   const fromVite = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SIYF_CDN_URL : undefined;
-  return fromProcess ?? fromVite ?? 'https://cdn.jsdelivr.net/gh/Sports-in-your-face/siyf-cdn@main';
+  return fromProcess ?? fromVite ?? 'https://cdn.jsdelivr.net/gh/Sports-in-your-face/siyf-web-cdn@main';
 }
 
 export const SIYF_CDN_BASE = readCdnBase();
@@ -67,6 +67,7 @@ export const CDN_TEAM_SPORTS = {
   nba: 'teams/nba.json',
   nfl: 'teams/nfl.json',
   epl: 'teams/epl.json',
+  mls: 'teams/mls.json',
   mlb: 'teams/mlb.json',
   nhl: 'teams/nhl.json',
 } as const;
@@ -76,7 +77,7 @@ export type CdnTeamSport = keyof typeof CDN_TEAM_SPORTS;
 export const APP_SPORT_TO_CDN: Record<string, CdnTeamSport | undefined> = {
   BASKETBALL: 'nba',
   FOOTBALL: 'nfl',
-  SOCCER: 'epl',
+  SOCCER: 'mls',
   BASEBALL: 'mlb',
   HOCKEY: 'nhl',
 };
@@ -84,7 +85,12 @@ export const APP_SPORT_TO_CDN: Record<string, CdnTeamSport | undefined> = {
 export const ENGINE_SPORT_TO_CDN: Record<string, CdnTeamSport> = {
   BASKETBALL: 'nba',
   FOOTBALL: 'nfl',
-  SOCCER: 'epl',
+  SOCCER: 'mls',
   BASEBALL: 'mlb',
   HOCKEY: 'nhl',
 };
+
+export function soccerCdnTeamKey(): CdnTeamSport {
+  const league = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SIYF_SOCCER_LEAGUE : undefined;
+  return league === 'usa.1' ? 'mls' : 'epl';
+}
