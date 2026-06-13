@@ -9,22 +9,26 @@ export interface RssItem {
   pubDate?: string;
 }
 
-function decodeCdata(raw: string): string {
+function decodeRssText(raw: string): string {
   return raw
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#x0*27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .trim();
 }
 
 function extractTag(block: string, tag: string): string | undefined {
   const cdata = block.match(new RegExp(`<${tag}><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`, 'i'));
-  if (cdata?.[1]) return decodeCdata(cdata[1]);
+  if (cdata?.[1]) return decodeRssText(cdata[1]);
   const plain = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i'));
-  return plain?.[1] ? decodeCdata(plain[1]) : undefined;
+  return plain?.[1] ? decodeRssText(plain[1]) : undefined;
 }
 
 export function parseRssXml(xml: string): RssItem[] {
