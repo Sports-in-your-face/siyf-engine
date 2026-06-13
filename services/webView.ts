@@ -679,13 +679,24 @@ export interface WebTennisMatchView {
 }
 
 function playerInitials(name: string): string {
-  return name
+  const safe = (name || 'TBD').trim() || 'TBD';
+  return safe
     .split(/\s+/)
     .filter(Boolean)
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
+}
+
+function fallbackTennisPlayer(team?: Team | null): WebTennisPlayerView {
+  const name = team?.name?.trim() || 'TBD';
+  return {
+    name,
+    initials: playerInitials(name),
+    nat: team?.abbr || '—',
+    sets: coerceScore(team?.score),
+  };
 }
 
 function buildTennisSetScores(game: Game): string[] | undefined {
@@ -716,18 +727,8 @@ export function adaptTennisGameForWeb(game: Game): WebTennisMatchView {
     venue: game.venue,
     broadcast: game.broadcast,
     leagueTag: tourTag,
-    player1: {
-      name: game.away.name,
-      initials: playerInitials(game.away.name),
-      nat: game.away.abbr || '',
-      sets: coerceScore(game.away.score),
-    },
-    player2: {
-      name: game.home.name,
-      initials: playerInitials(game.home.name),
-      nat: game.home.abbr || '',
-      sets: coerceScore(game.home.score),
-    },
+    player1: fallbackTennisPlayer(game.away),
+    player2: fallbackTennisPlayer(game.home),
     setScores: buildTennisSetScores(game),
     metaLine: gameMetaLine(game),
   };
