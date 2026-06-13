@@ -73,6 +73,7 @@ export function ensureTeamRegistry(key: TeamRegistryKey): Promise<void> {
 export async function preloadTeamRegistries(): Promise<void> {
   await Promise.all([
     ensureTeamRegistry('nba'),
+    ensureTeamRegistry('wnba'),
     ensureTeamRegistry('nfl'),
     ensureTeamRegistry('epl'),
     ensureTeamRegistry('mls'),
@@ -233,6 +234,26 @@ export function enrichSoccerTeam(
   partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
 ): ResolvedTeam {
   return enrichFromRegistry(soccerRegistryKey(), abbr, partial);
+}
+
+// WNBA (separate registry — shared abbreviations with NBA, e.g. IND)
+export function getAllWnbaTeams(): ResolvedTeam[] {
+  return getAllFromRegistry('wnba');
+}
+
+export function resolveWnbaTeam(query: string): ResolvedTeam | undefined {
+  return resolveFromRegistry('wnba', query);
+}
+
+export function resolveWnbaTeamLogo(abbr: string, existing?: string): string {
+  return resolveTeamLogoFor('wnba', abbr, existing);
+}
+
+export function enrichWnbaTeam(
+  abbr: string,
+  partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
+): ResolvedTeam {
+  return enrichFromRegistry('wnba', abbr, partial);
 }
 
 // MLB

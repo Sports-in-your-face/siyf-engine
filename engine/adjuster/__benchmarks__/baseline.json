@@ -1,15 +1,47 @@
 {
   "version": 1,
-  "capturedAt": null,
+  "capturedAt": "2026-06-13T21:02:42.381Z",
   "note": "Fill capturedAt and observed rates via npm run drift:capture on a live game day.",
   "sports": {
-    "BASKETBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
-    "FOOTBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
-    "SOCCER": { "targetParseRate": 0.85, "observedParseRate": null, "sampleRawCount": null },
-    "BASEBALL": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
-    "HOCKEY": { "targetParseRate": 0.9, "observedParseRate": null, "sampleRawCount": null },
-    "TENNIS": { "targetParseRate": 0.7, "observedParseRate": null, "sampleRawCount": null },
-    "GOLF": { "targetParseRate": 0.5, "observedParseRate": null, "sampleRawCount": null },
-    "FIGHTS": { "targetParseRate": 0.6, "observedParseRate": null, "sampleRawCount": null }
+    "BASKETBALL": {
+      "targetParseRate": 0.9,
+      "observedParseRate": 1,
+      "sampleRawCount": 5
+    },
+    "FOOTBALL": {
+      "targetParseRate": 0.9,
+      "observedParseRate": 1,
+      "sampleRawCount": 2
+    },
+    "SOCCER": {
+      "targetParseRate": 0.85,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    },
+    "BASEBALL": {
+      "targetParseRate": 0.9,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    },
+    "HOCKEY": {
+      "targetParseRate": 0.9,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    },
+    "TENNIS": {
+      "targetParseRate": 0.7,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    },
+    "GOLF": {
+      "targetParseRate": 0.5,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    },
+    "FIGHTS": {
+      "targetParseRate": 0.6,
+      "observedParseRate": 1,
+      "sampleRawCount": 1
+    }
   }
 }

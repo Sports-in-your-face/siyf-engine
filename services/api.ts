@@ -25,6 +25,34 @@ import { isEngineSport } from '../engine/engineSports';
 import { CACHE_PROFILES } from '../engine/core/cacheTiers';
 import { sessionGet, sessionSet } from '../engine/core/sessionPersist';
 import type { LeagueContext } from '../types';
+import {
+  espnNflDraft,
+  espnNflLeaders,
+  espnNflScoreboard,
+  espnNflWeekScoreboard,
+  parseEspnNflDraft,
+  parseEspnNflStatLeaders,
+  type NflDraftBoard,
+  type NflStatCategory,
+} from '../engine/sources/espnNflSource';
+import { espnNbaLeaders, parseEspnNbaStatLeaders, espnWnbaTeamRoster, espnWnbaTeamSchedule, espnWnbaTeams, parseEspnRoster } from '../engine/sources/espnSource';
+import { espnMlbLeaders, parseEspnMlbStatLeaders } from '../engine/sources/espnMlbSource';
+import { espnMlsLeaders, parseEspnMlsStatLeaders } from '../engine/sources/espnSoccerSource';
+import {
+  espnGolfLeaders,
+  parseEspnGolfStatLeaders,
+  espnLpgaScoreboard,
+  espnPgaScoreboard,
+  parseGolfScoreboardEvents,
+  type GolfStatLeaderCategory,
+} from '../engine/sources/espnGolfSource';
+import {
+  espnAtpScoreboard,
+  espnWtaScoreboard,
+  parseTennisScoreboardEvents,
+} from '../engine/sources/espnTennisSource';
+import { espnNhlLeaders, parseEspnNhlStatLeaders } from '../engine/sources/espnNhlSource';
+import type { StatLeaderCategory } from '../engine/sources/espnStatLeaders';
 
 export const SPORT_ENDPOINTS = {
   BASKETBALL: '/api/espn/apis/site/v2/sports/basketball/nba/scoreboard',
@@ -39,9 +67,15 @@ export const SPORT_ENDPOINTS = {
 
 export type SportType = keyof typeof SPORT_ENDPOINTS;
 
-export async function fetchGames(sport: SportType): Promise<Game[]> {
+export interface FetchGamesOptions {
+  /** Skip in-memory and edge cache for this scoreboard fetch (resume burst). */
+  bypassCache?: boolean;
+}
+
+export async function fetchGames(sport: SportType, options?: FetchGamesOptions): Promise<Game[]> {
   if (isEngineSport(sport)) {
     try {
+      if (options?.bypassCache) getEngine(sport).bustScoreboardCache();
       const { data } = await getEngine(sport).getScoreboard();
       return filterRecentGames(dedupeGamesById(data));
     } catch (err) {
@@ -54,7 +88,11 @@ export async function fetchGames(sport: SportType): Promise<Game[]> {
     const endpoint = SPORT_ENDPOINTS[sport];
     if (!endpoint) return [];
     const url = resolveProxyUrl(endpoint);
-    const res = await fetch(url);
+    const extraHeaders: Record<string, string> = {};
+    if (options?.bypassCache) extraHeaders['X-SIYF-Bypass-Cache'] = '1';
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', ...extraHeaders },
+    });
     if (!res.ok) throw new Error('Failed to fetch');
     const data = await res.json();
     const cdnKey = APP_SPORT_TO_CDN[sport];
@@ -86,16 +124,28 @@ export async function fetchGameDetail(game: Game, sport: SportType): Promise<Gam
 
 export interface SelectableTeam {
   id: string;
+  espnId?: string;
   sport: SportType;
   name: string;
   abbr: string;
   logo?: string;
+  color?: string;
+  note?: string;
 }
 
-const teamsCache: Partial<Record<SportType, SelectableTeam[]>> = {};
+export interface TeamFetchOptions {
+  leagueTag?: string;
+}
 
-export function getCachedTeams(sport: SportType): SelectableTeam[] | undefined {
-  return teamsCache[sport];
+function teamsCacheKey(sport: SportType, leagueTag?: string): string {
+  const tag = leagueTag?.toUpperCase();
+  return tag ? `${sport}:${tag}` : sport;
+}
+
+const teamsCache: Partial<Record<string, SelectableTeam[]>> = {};
+
+export function getCachedTeams(sport: SportType, leagueTag?: string): SelectableTeam[] | undefined {
+  return teamsCache[teamsCacheKey(sport, leagueTag)];
 }
 
 export function prefetchTeams(
@@ -329,18 +379,79 @@ export async function fetchPlayerDetails(
   }
 }
 
-export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> => {
-  if (teamsCache[sport]) return teamsCache[sport];
+export const fetchTeams = async (
+  sport: SportType,
+  leagueTag?: string,
+): Promise<SelectableTeam[]> => {
+  const cacheKey = teamsCacheKey(sport, leagueTag);
+  if (teamsCache[cacheKey]) return teamsCache[cacheKey];
 
-  const sessionKey = `teams:${sport}`;
+  const sessionKey = `teams:${cacheKey}`;
   const cached = sessionGet<SelectableTeam[]>(sessionKey, CACHE_PROFILES.static.staleMs);
   if (cached?.length) {
-    teamsCache[sport] = cached;
+    teamsCache[cacheKey] = cached;
     return cached;
   }
 
   const cdnKey = APP_SPORT_TO_CDN[sport];
-  if (cdnKey) {
+  const subLeague = leagueTag?.toUpperCase();
+  const teamsFromCdn = await loadCdnTeamsForSport(sport, subLeague);
+  if (teamsFromCdn.length) {
+    const parsed = teamsFromCdn
+      .map((t) => ({
+        id: String(t.espnId ?? t.id ?? t.abbr),
+        espnId: t.espnId ? String(t.espnId) : undefined,
+        sport,
+        name: t.name,
+        abbr: t.abbr,
+        logo: t.logo,
+        color: getTeamAccent({
+          color: t.color,
+          alternateColor: t.alternateColor,
+        }),
+        note: t.note,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    teamsCache[cacheKey] = parsed;
+    sessionSet(sessionKey, parsed);
+    return parsed;
+  }
+
+  if (sport === 'BASKETBALL' && subLeague === 'WNBA') {
+    try {
+      const raw = await espnWnbaTeams();
+      const entries = raw?.sports?.[0]?.leagues?.[0]?.teams ?? [];
+      const parsed: SelectableTeam[] = entries.map((entry: { team?: Record<string, unknown> }) => {
+        const team = entry.team ?? {};
+        const logos = (team.logos as Array<{ href?: string; rel?: string[] }>) ?? [];
+        const logo =
+          logos.find((l) => l.rel?.includes('default'))?.href
+          ?? logos[0]?.href
+          ?? '';
+        return {
+          id: String(team.id ?? team.abbreviation ?? ''),
+          espnId: team.id != null ? String(team.id) : undefined,
+          sport,
+          name: coerceDisplayString(team.displayName ?? team.name, String(team.abbreviation ?? '')),
+          abbr: coerceDisplayString(team.abbreviation, '—'),
+          logo,
+          color: getTeamAccent({
+            color: team.color ? `#${team.color}` : undefined,
+            alternateColor: team.alternateColor ? `#${team.alternateColor}` : undefined,
+          }),
+        };
+      }).sort((a: SelectableTeam, b: SelectableTeam) => a.name.localeCompare(b.name));
+      if (parsed.length) {
+        teamsCache[cacheKey] = parsed;
+        sessionSet(sessionKey, parsed);
+        return parsed;
+      }
+    } catch (err) {
+      console.error('WNBA teams error:', err);
+    }
+  }
+
+  if (cdnKey && !subLeague) {
     const teams = await loadCdnTeamsForSport(sport);
     if (teams.length) {
       const parsed = teams
@@ -351,15 +462,20 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
           name: t.name,
           abbr: t.abbr,
           logo: t.logo,
+          color: getTeamAccent({
+            color: t.color,
+            alternateColor: t.alternateColor,
+          }),
+          note: t.note,
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
-      teamsCache[sport] = parsed;
+      teamsCache[cacheKey] = parsed;
       sessionSet(sessionKey, parsed);
       return parsed;
     }
   }
 
-  if (isEngineSport(sport)) {
+  if (isEngineSport(sport) && !subLeague) {
     try {
       const { data } = await getEngine(sport as EngineSport).getTeams();
       const parsed: SelectableTeam[] = data.map((t: ResolvedTeam) => ({
@@ -369,8 +485,13 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
         name: t.name,
         abbr: t.abbr,
         logo: t.logo,
+        color: getTeamAccent({
+          color: t.color,
+          alternateColor: t.alternateColor,
+        }),
+        note: t.note,
       })).sort((a, b) => a.name.localeCompare(b.name));
-      teamsCache[sport] = parsed;
+      teamsCache[cacheKey] = parsed;
       if (parsed.length) sessionSet(sessionKey, parsed);
       return parsed;
     } catch (err) {
@@ -420,12 +541,34 @@ export async function fetchStandings(sport: SportType): Promise<StandingsGroup[]
   }
 }
 
-export async function fetchTeamRoster(sport: SportType, teamId: string): Promise<Player[]> {
+export async function fetchTeamRoster(
+  sport: SportType,
+  teamId: string,
+  options?: TeamFetchOptions,
+): Promise<Player[]> {
   if (!isEngineSport(sport)) return [];
 
-  const sessionKey = `roster:${sport}:${teamId}`;
+  const leagueTag = options?.leagueTag?.toUpperCase();
+  const sessionKey = `roster:${sport}:${leagueTag ?? 'default'}:${teamId}`;
   const cached = sessionGet<Player[]>(sessionKey, CACHE_PROFILES.static.staleMs);
   if (cached?.length) return cached;
+
+  if (sport === 'BASKETBALL' && leagueTag === 'WNBA') {
+    try {
+      const raw = await espnWnbaTeamRoster(teamId);
+      if (!raw) return cached ?? [];
+      const roster = parseEspnRoster(raw).map((p) => ({
+        ...p,
+        team: '',
+        stats: [] as StatItem[],
+      }));
+      if (roster.length) sessionSet(sessionKey, roster);
+      return roster;
+    } catch (err) {
+      console.error('WNBA roster error:', err);
+      return cached ?? [];
+    }
+  }
 
   try {
     const { data } = await getEngine(sport).getTeamRoster(teamId);
@@ -437,8 +580,27 @@ export async function fetchTeamRoster(sport: SportType, teamId: string): Promise
   }
 }
 
-export async function fetchTeamSchedule(sport: SportType, teamId: string): Promise<Game[]> {
+export async function fetchTeamSchedule(
+  sport: SportType,
+  teamId: string,
+  options?: TeamFetchOptions,
+): Promise<Game[]> {
   if (!isEngineSport(sport)) return [];
+
+  const leagueTag = options?.leagueTag?.toUpperCase();
+  if (sport === 'BASKETBALL' && leagueTag === 'WNBA') {
+    try {
+      const raw = await espnWnbaTeamSchedule(teamId);
+      const events = getEspnEvents(raw);
+      const parsed = parseEventsForSport(events, 'BASKETBALL', { telemetrySport: 'WNBA' })
+        .map((g) => ({ ...g, sport: 'WNBA' as const }));
+      return filterRecentGames(dedupeGamesById(parsed));
+    } catch (err) {
+      console.error('WNBA schedule error:', err);
+      return [];
+    }
+  }
+
   try {
     const { data } = await getEngine(sport).getTeamSchedule(teamId);
     return filterRecentGames(dedupeGamesById(data));
@@ -470,3 +632,274 @@ export async function fetchWnbaLeagueContext(): Promise<LeagueContext | null> {
     return null;
   }
 }
+
+export async function fetchNflStatLeaders(): Promise<NflStatCategory[]> {
+  const sessionKey = 'nfl:stat-leaders';
+  const cached = sessionGet<NflStatCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnNflLeaders();
+    const parsed = parseEspnNflStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('NFL stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchNbaStatLeaders(): Promise<StatLeaderCategory[]> {
+  const sessionKey = 'nba:stat-leaders';
+  const cached = sessionGet<StatLeaderCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnNbaLeaders();
+    const parsed = parseEspnNbaStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('NBA stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchMlbStatLeaders(): Promise<StatLeaderCategory[]> {
+  const sessionKey = 'mlb:stat-leaders';
+  const cached = sessionGet<StatLeaderCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnMlbLeaders();
+    const parsed = parseEspnMlbStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('MLB stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchMlsStatLeaders(): Promise<StatLeaderCategory[]> {
+  const sessionKey = 'mls:stat-leaders';
+  const cached = sessionGet<StatLeaderCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnMlsLeaders();
+    const parsed = parseEspnMlsStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('MLS stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchGolfStatLeaders(): Promise<GolfStatLeaderCategory[]> {
+  const sessionKey = 'golf:stat-leaders';
+  const cached = sessionGet<GolfStatLeaderCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnGolfLeaders('PGA');
+    const parsed = parseEspnGolfStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Golf stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchNhlStatLeaders(): Promise<StatLeaderCategory[]> {
+  const sessionKey = 'nhl:stat-leaders';
+  const cached = sessionGet<StatLeaderCategory[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnNhlLeaders();
+    const parsed = parseEspnNhlStatLeaders(raw);
+    if (parsed?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('NHL stat leaders error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export interface NflSeasonMeta {
+  year: number;
+  seasonType: number;
+  currentWeek: number;
+  regularSeasonWeeks: number;
+}
+
+export async function fetchNflSeasonMeta(): Promise<NflSeasonMeta | null> {
+  const sessionKey = 'nfl:season-meta';
+  const cached = sessionGet<NflSeasonMeta>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.year) return cached;
+
+  try {
+    const raw = await espnNflScoreboard();
+    if (!raw?.season?.year) return cached ?? null;
+    const meta: NflSeasonMeta = {
+      year: raw.season.year,
+      seasonType: raw.season.type ?? 2,
+      currentWeek: raw.week?.number ?? 1,
+      regularSeasonWeeks: 18,
+    };
+    sessionSet(sessionKey, meta);
+    return meta;
+  } catch (err) {
+    console.warn('NFL season meta error:', err);
+    return cached ?? null;
+  }
+}
+
+export async function fetchNflWeekSchedule(
+  week: number,
+  year?: number,
+  seasonType = 2,
+): Promise<Game[]> {
+  const sessionKey = `nfl:schedule:${year ?? 'current'}:${seasonType}:${week}`;
+  const cached = sessionGet<Game[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const raw = await espnNflWeekScoreboard(week, year, seasonType);
+    const events = getEspnEvents(raw);
+    const parsed = filterRecentGames(dedupeGamesById(parseEventsForSport(events, 'FOOTBALL')));
+    if (parsed.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn(`NFL week ${week} schedule error:`, err);
+  }
+
+  return cached ?? [];
+}
+
+function formatEspnDateAnchor(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+/** First-of-month anchors for dated ESPN scoreboard fetches. */
+export function buildSeasonMonthAnchors(pastMonths = 3, futureMonths = 9): string[] {
+  const anchors: string[] = [];
+  const now = new Date();
+  for (let offset = -pastMonths; offset <= futureMonths; offset += 1) {
+    const month = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    anchors.push(formatEspnDateAnchor(month));
+  }
+  return anchors;
+}
+
+export async function fetchGolfSeasonEvents(): Promise<Game[]> {
+  const sessionKey = 'golf:season-events';
+  const cached = sessionGet<Game[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const anchors = buildSeasonMonthAnchors(3, 9);
+    const games: Game[] = [];
+    for (const dates of anchors) {
+      const [pga, lpga] = await Promise.all([
+        espnPgaScoreboard(dates),
+        espnLpgaScoreboard(dates),
+      ]);
+      if (!pga?.events?.length && !lpga?.events?.length) continue;
+      games.push(...parseGolfScoreboardEvents({
+        events: pga?.events ?? [],
+        lpgaEvents: lpga?.events ?? [],
+      }));
+    }
+    const parsed = dedupeGamesById(games);
+    if (parsed.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Golf season events error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchTennisSeasonEvents(): Promise<Game[]> {
+  const sessionKey = 'tennis:season-events';
+  const cached = sessionGet<Game[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
+  try {
+    const anchors = buildSeasonMonthAnchors(3, 9);
+    const games: Game[] = [];
+    for (const dates of anchors) {
+      const [atp, wta] = await Promise.all([
+        espnAtpScoreboard(dates),
+        espnWtaScoreboard(dates),
+      ]);
+      if (!atp?.events?.length && !wta?.events?.length) continue;
+      games.push(...parseTennisScoreboardEvents({
+        events: atp?.events ?? [],
+        atpEvents: atp?.events ?? [],
+        wtaEvents: wta?.events ?? [],
+      }));
+    }
+    const parsed = dedupeGamesById(games);
+    if (parsed.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Tennis season events error:', err);
+  }
+
+  return cached ?? [];
+}
+
+export async function fetchNflDraft(): Promise<NflDraftBoard | null> {
+  const sessionKey = 'nfl:draft';
+  const cached = sessionGet<NflDraftBoard>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.picks?.length) return cached;
+
+  try {
+    const raw = await espnNflDraft();
+    const parsed = parseEspnNflDraft(raw);
+    if (parsed?.picks?.length) {
+      sessionSet(sessionKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('NFL draft error:', err);
+  }
+
+  return cached ?? null;
+}
+
+export type { NflDraftBoard, NflDraftPick, NflStatCategory, NflStatLeaderEntry } from '../engine/sources/espnNflSource';
+export type { StatLeaderCategory, StatLeaderEntry } from '../engine/sources/espnStatLeaders';
+export type { GolfStatLeaderCategory, GolfStatLeaderEntry } from '../engine/sources/espnGolfSource';

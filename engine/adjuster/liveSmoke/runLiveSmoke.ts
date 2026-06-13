@@ -3,6 +3,9 @@ import path from 'node:path';
 import type { Game } from '../../../types';
 import type { SportType } from '../../../services/api';
 import { buildDriftReport, type ParseBatchReport } from '../adjuster';
+import { getDlqSnapshot } from '../dlq';
+import { getChronoRecords, getRecentChronoTransitions } from '../chronoState';
+import { getGovernorStats } from '../../core/apiGovernor';
 import { fetchSupplementalFightScoreboards } from '../../sources/fightSupplementalFeeds';
 import { fetchSupplementalSoccerScoreboards } from '../../sources/soccerSupplementalFeeds';
 import { evaluateParseBatch } from './evaluateBatch';
@@ -336,6 +339,20 @@ export function buildLiveSmokeReport(
   payload.failedFetches = results.filter((r) => r.status === 'fetch_failed').length;
   payload.healthyMerges = merges.filter((m) => m.healthy).length;
   payload.totalMerges = merges.length;
+
+  payload.adjusterV2 = {
+    dlq: getDlqSnapshot(20).map((e) => ({
+      dedupeKey: e.dedupeKey,
+      field: e.canonicalField,
+      count: e.occurrenceCount,
+      lastSeenAt: e.lastSeenAt,
+    })),
+    governor: getGovernorStats(),
+    chrono: {
+      games: getChronoRecords().length,
+      recentTransitions: getRecentChronoTransitions().slice(-10),
+    },
+  };
 
   return JSON.stringify(payload, null, 2);
 }

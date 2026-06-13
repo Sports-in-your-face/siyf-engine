@@ -2,6 +2,7 @@ import { resolveProxyUrl, getSiyfAuthJwt } from '../../config/siyfApi';
 import { createEngineLog } from './engineUtils';
 import { canUsePaidApi, recordPaidApiGatePass, trackPaidApiHourly } from '../adjuster/paidKillSwitch';
 import { detectPaidApi, trackPaidApiUse } from './paidApiTelemetry';
+import { governorFetch, inferPriority } from './apiGovernor';
 
 const log = createEngineLog('resilient-fetch');
 
@@ -79,6 +80,17 @@ const rateLimitedUntil = new Map<string, number>();
 const RATE_LIMIT_BACKOFF_MS = 60_000;
 
 export async function fetchJsonResilient<T>(
+  url: string,
+  init?: RequestInit,
+  opts?: ResilientFetchOptions,
+): Promise<T | null> {
+  return governorFetch(
+    () => fetchJsonResilientInner<T>(url, init, opts),
+    { label: opts?.label, priority: inferPriority(opts?.label) },
+  );
+}
+
+async function fetchJsonResilientInner<T>(
   url: string,
   init?: RequestInit,
   opts?: ResilientFetchOptions,

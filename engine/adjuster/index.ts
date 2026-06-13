@@ -1,6 +1,56 @@
 export { resolveFirst, resolveWithTrace, deepGet, pathKey } from './fieldResolver';
 export type { FieldPath } from './fieldResolver';
 
+export {
+  CHRONO_POLL_INTERVALS,
+  computeChronoPollInterval,
+  computeGlobalChronoPollInterval,
+  getChronoRecords,
+  getGameChronoRecord,
+  getRecentChronoTransitions,
+  resetChronoState,
+  subscribeChronoState,
+  updateGameChrono,
+  updateGamesChrono,
+  type ChronoState,
+  type ChronoTransition,
+  type GameChronoRecord,
+} from './chronoState';
+
+export {
+  classifyStatusSignal,
+  hasActiveClock,
+  loadCdnPauseKeywordsOverlay,
+  resetCdnPauseKeywordsOverlay,
+  type StatusSignal,
+} from './statusClassifier';
+export { initAdjusterCdn, refreshAdjusterCdn, stopAdjusterCdnPoll } from './adjusterCdnInit';
+
+export {
+  resolveEventField,
+  resolveCompetitorField,
+  resolveStatusState,
+  resolveDisplayClock,
+  getUpstreamAdapters,
+} from '../acl';
+
+export {
+  recordFieldDlq,
+  getDlqSnapshot,
+  getDlqEntry,
+  resetFieldDlq,
+  shouldEmitDlqAlert,
+  dlqToInvariantIssue,
+  type FieldDlqEntry,
+} from './dlq';
+
+export { sniffField, CLOCK_RULE, type SniffRule, type SniffResult } from './valueSniffer';
+
+export { fuzzyResolveField, type FuzzyMatch } from './fuzzyResolver';
+export { resolveFieldWaterfall, type ResolveSource, type ResolveWaterfallResult } from './schemaResolver';
+export { mergeAliasPaths, loadCdnAliasOverlay, resetCdnAliasOverlay } from './cdnAliases';
+export { shouldSkipScoreboardEnrichment } from './deltaFetch';
+
 export { ESPN_COMPETITOR_ALIASES, ESPN_EVENT_ALIASES } from './registry';
 export type { EspnCompetitorField } from './registry';
 
@@ -14,6 +64,7 @@ export {
   resolveEspnEventFieldWithTrace,
   resolveEspnStatusState,
   resolveEspnDisplayClock,
+  type EspnResolveContext,
 } from './espnEventResolver';
 
 export {
@@ -54,6 +105,7 @@ export {
   PARSE_RATE_ERROR_THRESHOLD,
   type ParseBatchMetrics,
   type ParseDriftAlert,
+  type ParseDriftAlertKind,
 } from './telemetry';
 
 export {

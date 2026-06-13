@@ -253,7 +253,10 @@ export const SPORT_CAPABILITIES: Record<EngineSport, SportCapabilities> = {
     sport: 'FIGHTS',
     layout: 'fight',
     detailCachePrefix: 'fights-detail',
-    features: INDIVIDUAL_SPORT_FEATURES,
+    features: {
+      ...INDIVIDUAL_SPORT_FEATURES,
+      standings: true,
+    },
     pipeline: {
       rss: true,
       odds: false,

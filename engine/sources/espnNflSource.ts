@@ -38,6 +38,27 @@ export async function espnNflScoreboard(dates?: string): Promise<any | null> {
   );
 }
 
+/** Full NFL week schedule via scoreboard (regular season default). */
+export async function espnNflWeekScoreboard(
+  week: number,
+  year?: number,
+  seasonType = 2,
+): Promise<any | null> {
+  const yr = year ?? new Date().getFullYear();
+  const key = cacheKey('espn-nfl', 'scoreboard', `week-${week}`, String(yr), String(seasonType));
+  return cachedFetch(
+    key,
+    profileForResource('schedule'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(
+        `${BASE}/scoreboard?seasontype=${seasonType}&week=${week}&year=${yr}`,
+        undefined,
+        { label: `espn-nfl-scoreboard-week-${week}`, retries: 2, bypassCache },
+      ),
+    ['schedule', 'nfl', `week:${week}`],
+  );
+}
+
 export async function espnNflTeams(): Promise<any | null> {
   const key = cacheKey('espn-nfl', 'teams');
   return cachedFetch(
@@ -293,24 +314,19 @@ export function parseEspnNflTeamStats(summary: any): { away: StatItem[]; home: S
 }
 
 export function parseEspnNflPlays(summary: any): PlayEvent[] {
-  const drives = summary?.drives?.previous ?? [];
+  const drives = [
+    ...(summary?.drives?.previous ?? []),
+    ...(summary?.drives?.current ? [summary.drives.current] : []),
+  ];
+  const allFromDrives = drives.flatMap((d: any) => d.plays ?? []);
   const scoringPlays = summary?.scoringPlays ?? [];
-  const rawPlays = scoringPlays.length ? scoringPlays : drives.flatMap((d: any) => d.plays ?? []);
+  const rawPlays = allFromDrives.length
+    ? allFromDrives
+    : (scoringPlays.length ? scoringPlays : summary?.plays ?? []);
 
-  if (!Array.isArray(rawPlays) || !rawPlays.length) {
-    const plays = summary?.plays ?? [];
-    if (!plays.length) return [];
-    return [...plays].reverse().slice(0, 40).map((p: any, idx: number) => ({
-      id: String(p.id ?? idx),
-      period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
-      clock: p.clock?.displayValue ?? '',
-      text: p.text ?? p.shortText ?? p.type?.text ?? '',
-      teamAbbr: p.team?.abbreviation,
-      scoringPlay: Boolean(p.scoringPlay),
-    }));
-  }
+  if (!Array.isArray(rawPlays) || !rawPlays.length) return [];
 
-  return [...rawPlays].reverse().slice(0, 40).map((p: any, idx: number) => ({
+  return [...rawPlays].reverse().slice(0, 150).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -407,4 +423,140 @@ export function parseEspnNflTeamsList(data: any) {
 
 export function parseEspnNflRoster(data: any) {
   return parseEspnRosterEntries(data);
+}
+
+const NFL_STAT_ICONS: Record<string, string> = {
+  passingYards: 'ph-football',
+  rushingYards: 'ph-arrow-right',
+  receivingYards: 'ph-hand-grabbing',
+  passingTouchdowns: 'ph-star',
+  totalTouchdowns: 'ph-star',
+};
+
+export interface NflStatLeaderEntry {
+  name: string;
+  team: string;
+  logo: string;
+  value: string;
+}
+
+export interface NflStatCategory {
+  label: string;
+  icon: string;
+  leaders: NflStatLeaderEntry[];
+}
+
+export interface NflDraftPick {
+  pick: number;
+  round: number;
+  player: string;
+  team: string;
+  teamId: string;
+  pos: string;
+  college: string;
+}
+
+export interface NflDraftBoard {
+  meta: {
+    year?: number;
+    displayName: string;
+    pickCount: number;
+    roundCount: number;
+  };
+  picks: NflDraftPick[];
+}
+
+export async function espnNflLeaders(): Promise<any | null> {
+  const key = cacheKey('espn-nfl', 'leaders');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>('/api/espn/apis/site/v3/sports/football/nfl/leaders?limit=5', undefined, {
+        label: 'espn-nfl-leaders',
+        retries: 2,
+        bypassCache,
+      }),
+    ['standings', 'nfl', 'leaders'],
+  );
+}
+
+export async function espnNflDraft(): Promise<any | null> {
+  const key = cacheKey('espn-nfl', 'draft');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${BASE}/draft`, undefined, {
+        label: 'espn-nfl-draft',
+        retries: 2,
+        bypassCache,
+      }),
+    ['draft', 'nfl'],
+  );
+}
+
+export function parseEspnNflStatLeaders(data: any): NflStatCategory[] | null {
+  const categories = data?.leaders?.categories ?? [];
+  if (!categories.length) return null;
+
+  const wanted = ['passingYards', 'rushingYards', 'receivingYards', 'passingTouchdowns'];
+  const nflLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png`;
+  const mapped: NflStatCategory[] = [];
+
+  for (const key of wanted) {
+    const cat = categories.find((c: any) => c.name === key)
+      ?? (key === 'passingTouchdowns' ? categories.find((c: any) => c.name === 'totalTouchdowns') : null);
+    if (!cat?.leaders?.length) continue;
+
+    mapped.push({
+      label: cat.displayName ?? cat.name,
+      icon: NFL_STAT_ICONS[key] ?? NFL_STAT_ICONS[cat.name] ?? 'ph-chart-bar',
+      leaders: cat.leaders.slice(0, 5).map((l: any) => {
+        const abbr = l.team?.abbreviation ?? '—';
+        return {
+          name: l.athlete?.displayName ?? '—',
+          team: abbr,
+          logo: l.team?.logos?.[0]?.href ?? nflLogo(abbr),
+          value: String(l.displayValue ?? l.value ?? '—'),
+        };
+      }),
+    });
+  }
+
+  return mapped.length ? mapped : null;
+}
+
+export function parseEspnNflDraft(data: any): NflDraftBoard | null {
+  if (!data?.picks?.length) return null;
+
+  const teamMap = Object.fromEntries((data.teams ?? []).map((t: any) => [String(t.id), t]));
+  const posMap = Object.fromEntries(
+    (data.positions ?? []).map((p: any) => [String(p.id), p.abbreviation ?? p.displayName ?? '—']),
+  );
+
+  const picks: NflDraftPick[] = data.picks.map((p: any) => {
+    const team = teamMap[String(p.teamId)];
+    const abbr = (team?.abbreviation ?? '—').toLowerCase();
+    const posId = p.athlete?.position?.id;
+    return {
+      pick: p.overall ?? p.pick ?? 0,
+      round: p.round ?? 1,
+      player: p.athlete?.displayName ?? 'TBD',
+      team: team?.displayName ?? team?.name ?? '—',
+      teamId: abbr,
+      pos: posMap[String(posId)] ?? '—',
+      college: p.athlete?.team?.displayName ?? p.athlete?.team?.name ?? '—',
+    };
+  });
+
+  return {
+    meta: {
+      year: data.year,
+      displayName: data.displayName ?? `${data.year ?? ''} NFL Draft`.trim(),
+      pickCount: picks.length,
+      roundCount: data.rounds?.length ?? 7,
+    },
+    picks,
+  };
 }

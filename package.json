@@ -12,11 +12,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "drift:check": "vitest run engine/adjuster",
+    "drift:check": "vitest run engine/adjuster engine/acl",
     "drift:chaos": "vitest run engine/adjuster/__tests__/chaosSimulator.test.ts",
     "drift:merge": "vitest run engine/adjuster/__tests__/mergeSimulation.test.ts",
     "drift:kill": "vitest run engine/adjuster/__tests__/paidKillSwitchStress.test.ts",
-    "drift:live": "cross-env SIYF_LIVE_DRIFT=1 vitest run engine/adjuster/__tests__/liveSmoke.test.ts"
+    "drift:live": "cross-env SIYF_LIVE_DRIFT=1 vitest run engine/adjuster/__tests__/liveSmoke.test.ts",
+    "drift:capture": "vitest run engine/adjuster/__tests__/driftCapture.test.ts"
   },
   "exports": {
     ".": "./engine/index.ts",
@@ -24,6 +25,8 @@
     "./engine/*": "./engine/*",
     "./adjuster": "./engine/adjuster/index.ts",
     "./adjuster/*": "./engine/adjuster/*",
+    "./acl": "./engine/acl/index.ts",
+    "./acl/*": "./engine/acl/*",
     "./services/api": "./services/api.ts",
     "./services/search": "./services/search.ts",
     "./services/webView": "./services/webView.ts",

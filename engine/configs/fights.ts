@@ -15,6 +15,7 @@ import {
   espnMmaAthlete,
   espnMmaSearchAthletes,
   espnUfcScoreboard,
+  espnUfcStandings,
   parseEspnMmaGameMeta,
   parseEspnMmaRoster,
   parseEspnMmaTopPerformers,
@@ -61,7 +62,7 @@ export const fightsConfig: SportEngineConfig = {
     scoreboard: espnUfcScoreboard,
     athlete: espnMmaAthlete,
     searchAthletes: espnMmaSearchAthletes,
-    standings: async () => [],
+    standings: espnUfcStandings,
     teamRoster: async () => null,
     teamSchedule: async () => null,
     detail: {

@@ -104,6 +104,8 @@ export interface SportEngineConfig {
 
 export interface SportEngine {
   getScoreboard(): Promise<EngineResult<Game[]>>;
+  /** Force next scoreboard read to bypass in-memory and edge cache. */
+  bustScoreboardCache(): void;
   getLeagueContext(): LeagueContext | null;
   getGameDetail(game: Game): Promise<EngineResult<GameDetail>>;
   prefetchLiveDetails(games: Game[]): void;

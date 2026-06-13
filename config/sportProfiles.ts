@@ -2,14 +2,34 @@ import type { SportType } from '../services/api';
 
 export type CompetitorLayout = 'team' | 'matchup' | 'fight' | 'leaderboard';
 
+export type SportPageSectionId = 'statPreview' | 'upcoming' | 'finals';
+
+export interface SportPageTab {
+  id: string;
+  label: string;
+}
+
 export interface TableColumn {
   key: string;
   label: string;
 }
 
+const TEAM_SPORT_TABS: readonly SportPageTab[] = [
+  { id: 'scores', label: 'Scores' },
+  { id: 'standings', label: 'Standings' },
+  { id: 'teams', label: 'Teams' },
+  { id: 'stats', label: 'Stats' },
+];
+
 export interface SportProfile {
   id: SportType;
   layout: CompetitorLayout;
+  /** Primary nav tabs on the sport page */
+  pageTabs: readonly SportPageTab[];
+  /** Tab selected on first visit */
+  defaultPageTab: string;
+  /** Extra sections below a tab's main content (e.g. stat preview on Scores) */
+  tabSections: Partial<Record<string, readonly SportPageSectionId[]>>;
   /** Back button label on game detail screen */
   detailsHeader: string;
   clockLabel: string;
@@ -92,6 +112,9 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   BASKETBALL: {
     id: 'BASKETBALL',
     layout: 'team',
+    pageTabs: TEAM_SPORT_TABS,
+    defaultPageTab: 'scores',
+    tabSections: { scores: ['statPreview', 'upcoming', 'finals'] },
     detailsHeader: 'Scores',
     clockLabel: 'Clock',
     scheduledLabel: 'Scheduled',
@@ -141,6 +164,13 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   FOOTBALL: {
     id: 'FOOTBALL',
     layout: 'team',
+    pageTabs: [
+      ...TEAM_SPORT_TABS,
+      { id: 'schedule', label: 'Schedule' },
+      { id: 'draft', label: 'Draft' },
+    ],
+    defaultPageTab: 'standings',
+    tabSections: {},
     detailsHeader: 'Scores',
     clockLabel: 'Clock',
     scheduledLabel: 'Scheduled',
@@ -188,6 +218,9 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   SOCCER: {
     id: 'SOCCER',
     layout: 'team',
+    pageTabs: TEAM_SPORT_TABS,
+    defaultPageTab: 'scores',
+    tabSections: { scores: ['statPreview', 'upcoming'] },
     detailsHeader: 'Scores',
     clockLabel: 'Time',
     scheduledLabel: 'Scheduled',
@@ -235,6 +268,9 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   BASEBALL: {
     id: 'BASEBALL',
     layout: 'team',
+    pageTabs: TEAM_SPORT_TABS,
+    defaultPageTab: 'scores',
+    tabSections: { scores: ['statPreview', 'upcoming'] },
     detailsHeader: 'Scores',
     clockLabel: 'Inning',
     scheduledLabel: 'Scheduled',
@@ -282,6 +318,9 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   HOCKEY: {
     id: 'HOCKEY',
     layout: 'team',
+    pageTabs: TEAM_SPORT_TABS,
+    defaultPageTab: 'scores',
+    tabSections: { scores: ['statPreview', 'upcoming'] },
     detailsHeader: 'Scores',
     clockLabel: 'Clock',
     scheduledLabel: 'Scheduled',
@@ -328,6 +367,14 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   GOLF: {
     id: 'GOLF',
     layout: 'leaderboard',
+    pageTabs: [
+      { id: 'leaderboard', label: 'Leaderboard' },
+      { id: 'schedule', label: 'Schedule' },
+      { id: 'rankings', label: 'Rankings' },
+      { id: 'stats', label: 'Stats' },
+    ],
+    defaultPageTab: 'leaderboard',
+    tabSections: { leaderboard: ['statPreview', 'upcoming'] },
     detailsHeader: 'Leaderboard',
     clockLabel: 'Round',
     scheduledLabel: 'Scheduled',
@@ -374,6 +421,15 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   TENNIS: {
     id: 'TENNIS',
     layout: 'matchup',
+    pageTabs: [
+      { id: 'scores', label: 'Scores' },
+      { id: 'results', label: 'Results' },
+      { id: 'rankings', label: 'Rankings' },
+      { id: 'schedule', label: 'Schedule' },
+      { id: 'slams', label: 'Slams' },
+    ],
+    defaultPageTab: 'scores',
+    tabSections: { scores: ['statPreview', 'upcoming'] },
     detailsHeader: 'Match',
     clockLabel: 'Set',
     scheduledLabel: 'Scheduled',
@@ -420,6 +476,13 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
   FIGHTS: {
     id: 'FIGHTS',
     layout: 'fight',
+    pageTabs: [
+      { id: 'events', label: 'Events' },
+      { id: 'rankings', label: 'Rankings' },
+      { id: 'results', label: 'Results' },
+    ],
+    defaultPageTab: 'events',
+    tabSections: {},
     detailsHeader: 'Fights',
     clockLabel: 'Round',
     scheduledLabel: 'Scheduled',
@@ -465,6 +528,15 @@ export function getSportProfile(sport: SportType): SportProfile {
   if (profile) return profile;
   console.warn(`[sportProfiles] unknown sport "${sport}" — falling back to SOCCER`);
   return SPORT_PROFILES.SOCCER ?? Object.values(SPORT_PROFILES)[0];
+}
+
+export function hasSportPageSection(
+  sport: SportType,
+  tabId: string,
+  sectionId: SportPageSectionId,
+): boolean {
+  const sections = getSportProfile(sport).tabSections[tabId];
+  return sections?.includes(sectionId) ?? false;
 }
 
 export function getBookmarkableSports(sports: SportType[]): SportType[] {

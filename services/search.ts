@@ -1,4 +1,6 @@
 import { espnGlobalSearchAll, type EspnGlobalSearchHit } from '../engine/sources/espnCoreSearch';
+import { searchSoccerAthletesAllLeagues } from '../engine/sources/soccerLeagueOps';
+import { leagueLabel } from '../engine/sources/teamRegistry';
 import { getSportUiMeta } from './webView';
 import { fetchTeams, getCachedTeams, type SportType } from './api';
 
@@ -26,11 +28,24 @@ const TEAM_SPORTS: SportType[] = ['BASKETBALL', 'FOOTBALL', 'BASEBALL', 'HOCKEY'
 const ESPN_LEAGUE_SPORT: Record<string, SportType> = {
   nba: 'BASKETBALL',
   wnba: 'BASKETBALL',
+  'mens-college-basketball': 'BASKETBALL',
+  'womens-college-basketball': 'BASKETBALL',
   nfl: 'FOOTBALL',
   mlb: 'BASEBALL',
   nhl: 'HOCKEY',
   'usa.1': 'SOCCER',
   'eng.1': 'SOCCER',
+  'esp.1': 'SOCCER',
+  'ger.1': 'SOCCER',
+  'fra.1': 'SOCCER',
+  'ita.1': 'SOCCER',
+  'ned.1': 'SOCCER',
+  'por.1': 'SOCCER',
+  'mex.1': 'SOCCER',
+  'bra.1': 'SOCCER',
+  'uefa.champions': 'SOCCER',
+  'uefa.europa': 'SOCCER',
+  'uefa.europa.conf': 'SOCCER',
   mls: 'SOCCER',
   pga: 'GOLF',
   lpga: 'GOLF',
@@ -78,10 +93,11 @@ function mapEspnHit(hit: EspnGlobalSearchHit): SearchResultItem | null {
   if (!sport) return null;
 
   if (hit.type === 'player') {
+    const leagueName = sport === 'SOCCER' && hit.league ? leagueLabel(hit.league) : undefined;
     return toSearchItem('player', sport, {
       id: hit.id,
       name: hit.name,
-      subtitle: [hit.team, hit.position, getSportUiMeta(sport).label].filter(Boolean).join(' · '),
+      subtitle: [hit.team, hit.position, leagueName || getSportUiMeta(sport).label].filter(Boolean).join(' · '),
       headshot: hit.headshot,
       team: hit.team,
       espnId: hit.id,
@@ -147,6 +163,50 @@ async function searchLocalTeams(query: string): Promise<SearchResultItem[]> {
   return hits.slice(0, 10);
 }
 
+interface SoccerAthleteHit {
+  athlete?: {
+    id?: string | number;
+    displayName?: string;
+    fullName?: string;
+    headshot?: { href?: string } | string;
+    team?: { abbreviation?: string; displayName?: string };
+    position?: { abbreviation?: string };
+  };
+  id?: string | number;
+  leagueSlug?: string;
+}
+
+async function searchSoccerPlayers(query: string): Promise<SearchResultItem[]> {
+  const hits = await searchSoccerAthletesAllLeagues(query).catch(() => []);
+  const results: SearchResultItem[] = [];
+
+  for (const item of hits) {
+    const hit = item as SoccerAthleteHit;
+    const athlete = hit.athlete ?? {};
+    const id = String(athlete.id ?? hit.id ?? '');
+    const name = athlete.displayName ?? athlete.fullName ?? '';
+    if (!id || !name) continue;
+
+    const slug = hit.leagueSlug ?? 'usa.1';
+    const team = athlete.team?.abbreviation ?? athlete.team?.displayName;
+    const pos = athlete.position?.abbreviation;
+    const headshot = typeof athlete.headshot === 'object'
+      ? athlete.headshot?.href
+      : athlete.headshot;
+
+    results.push(toSearchItem('player', 'SOCCER', {
+      id,
+      name,
+      subtitle: [team, pos, leagueLabel(slug)].filter(Boolean).join(' · '),
+      headshot,
+      team,
+      espnId: id,
+    }));
+  }
+
+  return results.slice(0, 12);
+}
+
 async function searchEspnGlobal(query: string): Promise<SearchResultItem[]> {
   const hits = await espnGlobalSearchAll(query);
   const results: SearchResultItem[] = [];
@@ -190,15 +250,16 @@ export async function searchCatalog(query: string): Promise<SearchResultItem[]> 
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
 
-  const [localTeams, globalHits] = await Promise.all([
+  const [localTeams, globalHits, soccerPlayers] = await Promise.all([
     searchLocalTeams(trimmed),
     searchEspnGlobal(trimmed).catch(() => []),
+    searchSoccerPlayers(trimmed).catch(() => []),
   ]);
 
   const merged: SearchResultItem[] = [];
   const seen = new Set<string>();
 
-  for (const item of [...localTeams, ...globalHits]) {
+  for (const item of [...localTeams, ...globalHits, ...soccerPlayers]) {
     const key = `${item.type}:${item.sport}:${item.id}:${item.name}`;
     if (seen.has(key)) continue;
     seen.add(key);

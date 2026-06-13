@@ -5,6 +5,8 @@ import {
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
+import { applyRosterInjuriesFromItems, mapRssRumorItem } from '../core/rssRumorUtils';
+import type { PlayerRumor } from '../../types';
 import { enrichGameContext } from '../core/mergePayload';
 import type { Game, Player, ResolvedTeam } from '../core/types';
 
@@ -170,14 +172,19 @@ export async function rssCrossCheckFromFeeds(
   return null;
 }
 
-export async function fetchPlayerRumors(player: Player): Promise<string[]> {
+export async function fetchPlayerRumors(player: Player): Promise<PlayerRumor[]> {
   const feeds = RSS_FEEDS.filter((f) => f.role === 'player_rumors');
-  const rumors: string[] = [];
+  const rumors: PlayerRumor[] = [];
+  const seen = new Set<string>();
   for (const feed of feeds) {
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
-      if (textMentionsPlayer(text, player.name)) rumors.push(item.title);
+      if (!textMentionsPlayer(text, player.name)) continue;
+      const key = item.title.toLowerCase().trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rumors.push(mapRssRumorItem(item, feed.name));
     }
   }
   return rumors.slice(0, 3);
@@ -192,17 +199,7 @@ export async function enrichRosterWithInjuries(roster: Player[]): Promise<Player
     injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
   }
 
-  return roster.map((player) => {
-    const hit = injuryItems.find((item) => {
-      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
-      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|gtd|inactive|ruled out/i.test(text);
-    });
-    if (!hit) return player;
-    return {
-      ...player,
-      position: player.position.includes('·') ? player.position : `${player.position} · ${hit.title.slice(0, 40)}`,
-    };
-  });
+  return applyRosterInjuriesFromItems(roster, injuryItems);
 }
 
 export async function enrichTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {

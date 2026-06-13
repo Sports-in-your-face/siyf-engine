@@ -1,8 +1,25 @@
 import type { Game } from '../types';
+import { sessionGet, sessionSet } from '../engine/core/sessionPersist';
+import {
+  computeGlobalChronoPollInterval,
+  resetChronoState,
+  updateGamesChrono,
+} from '../engine/adjuster/chronoState';
 import { gamesSnapshotEqual } from '../utils/gameSnapshot';
-import { fetchGames, SPORT_ENDPOINTS, type SportType } from './api';
+import { fetchGames, SPORT_ENDPOINTS, type FetchGamesOptions, type SportType } from './api';
 
 type ScoreboardListener = (games: Game[]) => void;
+
+/** Stale-while-revalidate window for sessionStorage scoreboard snapshots. */
+const SCOREBOARD_SESSION_TTL_MS = 5 * 60 * 1000;
+
+function scoreboardSessionKey(sport: SportType): string {
+  return `scoreboard:${sport}`;
+}
+
+function hydrateScoreboardFromSession(sport: SportType): Game[] {
+  return sessionGet<Game[]>(scoreboardSessionKey(sport), SCOREBOARD_SESSION_TTL_MS) ?? [];
+}
 
 interface SportState {
   listeners: Set<ScoreboardListener>;
@@ -20,52 +37,67 @@ let paused = false;
 function getState(sport: SportType): SportState {
   let state = sportStates.get(sport);
   if (!state) {
-    state = { listeners: new Set(), lastGames: [], inflight: null };
+    state = { listeners: new Set(), lastGames: hydrateScoreboardFromSession(sport), inflight: null };
     sportStates.set(sport, state);
   }
   return state;
 }
 
-function hasLiveGames(games: Game[]): boolean {
-  return games.some((g) => g.statusState === 'in');
+function allActiveGameLists(): Game[][] {
+  const lists: Game[][] = [];
+  for (const sport of activeSports) {
+    const games = sportStates.get(sport)?.lastGames;
+    if (games?.length) lists.push(games);
+  }
+  return lists;
 }
 
 function computePollInterval(): number {
-  for (const sport of activeSports) {
-    const state = sportStates.get(sport);
-    if (state?.lastGames.length && hasLiveGames(state.lastGames)) {
-      return 12_000;
-    }
-  }
-  return 30_000;
+  const lists = allActiveGameLists();
+  if (!lists.length) return 30_000;
+  return computeGlobalChronoPollInterval(lists);
 }
 
-function notifyListeners(sport: SportType, games: Game[]): void {
+function deliverGames(sport: SportType, games: Game[], options?: FetchGamesOptions): void {
   const state = getState(sport);
-  if (gamesSnapshotEqual(state.lastGames, games)) return;
-  state.lastGames = games;
-  for (const listener of state.listeners) {
-    listener(games);
+  const changed = !gamesSnapshotEqual(state.lastGames, games);
+  const transitions = updateGamesChrono(games);
+
+  if (changed) {
+    state.lastGames = games;
+    if (games.length) sessionSet(scoreboardSessionKey(sport), games);
+    for (const listener of state.listeners) {
+      listener(games);
+    }
+  }
+
+  const resumed = transitions.filter((t) => t.resumed);
+  if (resumed.length && !options?.bypassCache) {
+    void fetchScoreboardOnce(sport, { bypassCache: true });
   }
 }
 
 /** Fetch one sport's scoreboard; dedupes concurrent callers. */
-export function fetchScoreboardOnce(sport: SportType): Promise<Game[]> {
+export function fetchScoreboardOnce(
+  sport: SportType,
+  options?: FetchGamesOptions,
+): Promise<Game[]> {
   if (!(sport in SPORT_ENDPOINTS)) return Promise.resolve([]);
 
   const state = getState(sport);
-  if (state.inflight) return state.inflight;
+  if (state.inflight && !options?.bypassCache) return state.inflight;
 
-  state.inflight = fetchGames(sport)
+  const run = fetchGames(sport, options)
     .then((games) => {
-      notifyListeners(sport, games);
+      deliverGames(sport, games, options);
       return games;
     })
     .finally(() => {
       state.inflight = null;
     });
 
-  return state.inflight;
+  state.inflight = run;
+  return run;
 }
 
 function restartPolling(): void {
@@ -119,6 +151,8 @@ export function subscribeScoreboard(
 
   if (state.lastGames.length) {
     listener(state.lastGames);
+    updateGamesChrono(state.lastGames);
+    restartPolling();
   } else {
     void fetchScoreboardOnce(sport);
   }
@@ -131,6 +165,8 @@ export function subscribeScoreboard(
     if (activeSports.size === 0 && pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
+    } else {
+      restartPolling();
     }
   };
 }
@@ -148,6 +184,7 @@ export function resetScoreboardPoller(): void {
   activeSports.clear();
   paused = false;
   pollIntervalMs = 30_000;
+  resetChronoState();
 }
 
 declare global {

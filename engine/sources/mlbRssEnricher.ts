@@ -5,6 +5,8 @@ import {
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
+import { applyRosterInjuriesFromItems, mapRssRumorItem } from '../core/rssRumorUtils';
+import type { PlayerRumor } from '../../types';
 
 const log = createEngineLog('mlb-rss');
 import { enrichGameContext } from '../core/mergePayload';
@@ -159,14 +161,19 @@ export async function mlbRssCrossCheckPlayoffHint(
   return null;
 }
 
-export async function fetchMlbPlayerRumors(player: Player): Promise<string[]> {
+export async function fetchMlbPlayerRumors(player: Player): Promise<PlayerRumor[]> {
   const feeds = MLB_RSS_FEEDS.filter((f) => f.role === 'player_rumors');
-  const rumors: string[] = [];
+  const rumors: PlayerRumor[] = [];
+  const seen = new Set<string>();
   for (const feed of feeds) {
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
-      if (textMentionsPlayer(text, player.name)) rumors.push(item.title);
+      if (!textMentionsPlayer(text, player.name)) continue;
+      const key = item.title.toLowerCase().trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rumors.push(mapRssRumorItem(item, feed.name));
     }
   }
   return rumors.slice(0, 3);
@@ -181,17 +188,7 @@ export async function enrichMlbRosterWithInjuries(roster: Player[]): Promise<Pla
     injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
   }
 
-  return roster.map((player) => {
-    const hit = injuryItems.find((item) => {
-      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
-      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|il|disabled list|inactive|ruled out/i.test(text);
-    });
-    if (!hit) return player;
-    return {
-      ...player,
-      position: player.position.includes('·') ? player.position : `${player.position} · ${hit.title.slice(0, 40)}`,
-    };
-  });
+  return applyRosterInjuriesFromItems(roster, injuryItems);
 }
 
 export async function enrichMlbTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {

@@ -11,9 +11,15 @@ export interface ParseBatchMetrics {
   timestamp: number;
 }
 
+export type ParseDriftAlertKind =
+  | 'low_parse_rate'
+  | 'invariant_errors'
+  | 'high_skip_rate'
+  | 'field_mapping_failed';
+
 export interface ParseDriftAlert {
   sport: string;
-  kind: 'low_parse_rate' | 'invariant_errors' | 'high_skip_rate';
+  kind: ParseDriftAlertKind;
   message: string;
   metrics: ParseBatchMetrics;
   topIssues: ParseInvariantIssue[];

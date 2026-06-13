@@ -58,7 +58,11 @@ export interface StandingsRow {
   gamesBack?: string;
   /** Overtime/shootout losses (NHL) */
   otl?: number;
-  /** League points (NHL: 2*W + OTL; other sports: unused) */
+  /** Draws/ties (soccer) */
+  draws?: number;
+  /** Goal differential display (soccer), e.g. "+12" */
+  goalDiff?: string;
+  /** League points (NHL: 2*W + OTL; soccer: table points) */
   points?: number;
 }
 

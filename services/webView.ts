@@ -1,10 +1,11 @@
 import type { StandingsGroup } from '../engine/core/types';
 import { getSportProfile } from '../config/sportProfiles';
 import type { SportType } from './api';
-import type { Game, Team } from '../types';
+import type { Game, Team, GameDetail, GameBoxScore, PlayEvent, StatItem } from '../types';
 import { displaySubtitle } from '../utils/gameDisplay';
 import { getUserTimezone } from '../utils/gameTime';
-import { extractGameOdds, isSpecialGameCard, specialGameLabel, gameMetaLine } from '../utils/gameMeta';
+import { getTeamAccent } from '../utils/teamColors';
+import { extractGameOdds, isSpecialGameCard, specialGameLabel, gameMetaLine, specialGameLogo } from '../utils/gameMeta';
 
 export type WebGameStatus = 'pre' | 'live' | 'final';
 
@@ -16,6 +17,8 @@ export interface WebTeamView {
   logo: string;
   score: number;
   record?: string;
+  /** ESPN team id when available (disambiguates shared abbreviations). */
+  id?: string;
 }
 
 export interface WebGameLeader {
@@ -33,6 +36,152 @@ export interface WebGameOdds {
   book?: string;
 }
 
+export interface WebGolfLeaderboardRow {
+  id: string;
+  position: number;
+  name: string;
+  toPar?: string;
+  score: string;
+  thru?: string;
+  country?: string;
+  linescores?: (number | string)[];
+}
+
+export interface WebGolfTournamentMeta {
+  tournamentName?: string;
+  par?: string;
+  purse?: string;
+  cutLine?: string;
+  yardage?: string;
+  fieldSize?: number;
+  leaderboardRows?: WebGolfLeaderboardRow[];
+}
+
+function golfStatValue(stats: StatItem[] | undefined, needle: string): string | undefined {
+  if (!stats?.length) return undefined;
+  const key = needle.toLowerCase();
+  return stats.find((s) => s.label.toLowerCase().includes(key))?.value;
+}
+
+/** Map golf tournament fields for web leaderboards and detail panels. */
+export function adaptGolfGameForWeb(game: Game): WebGolfTournamentMeta {
+  const tournamentStats = game.teamStats?.home ?? [];
+  const cutFromLog = game.eventLog?.find((e) => /cut/i.test(e.label))?.value;
+  const fieldStat = golfStatValue(tournamentStats, 'field');
+  const leaderboardRows: WebGolfLeaderboardRow[] = (game.leaderboard ?? []).map((entry, idx) => ({
+    id: entry.id || `lb-${idx}`,
+    position: entry.position ?? idx + 1,
+    name: entry.name,
+    toPar: entry.toPar,
+    score: entry.score,
+    thru: entry.thru,
+    country: entry.country,
+    linescores: entry.linescores,
+  }));
+
+  return {
+    tournamentName: game.tournamentName,
+    par: golfStatValue(tournamentStats, 'par'),
+    purse: golfStatValue(tournamentStats, 'purse'),
+    cutLine: golfStatValue(tournamentStats, 'cut') ?? cutFromLog,
+    yardage: golfStatValue(tournamentStats, 'yard') ?? golfStatValue(tournamentStats, 'yards'),
+    fieldSize: leaderboardRows.length || (fieldStat ? Number(fieldStat) : undefined),
+    leaderboardRows: leaderboardRows.length ? leaderboardRows : undefined,
+  };
+}
+
+export interface WebFightFighterView {
+  id?: string;
+  name: string;
+  record?: string;
+  headshot?: string;
+  flag?: string;
+  nationality?: string;
+  result?: string;
+  isWinner?: boolean;
+}
+
+export interface WebFightRoundScore {
+  round: number;
+  fighter1: string | number;
+  fighter2: string | number;
+}
+
+export interface WebFightBoutMeta {
+  cardName?: string;
+  weightClass?: string;
+  method?: string;
+  org?: string;
+  boutLabel?: string;
+  fighter1: WebFightFighterView;
+  fighter2: WebFightFighterView;
+  roundScores?: WebFightRoundScore[];
+}
+
+function fightResultLabel(score: number | string | null | undefined, statusState?: string): string | undefined {
+  if (score == null || score === '') return undefined;
+  const raw = String(score);
+  if (statusState === 'post' && (raw === 'W' || raw === 'L')) return raw;
+  if (raw === 'W' || raw === 'L') return raw;
+  return raw;
+}
+
+function isFightWinner(team: Team, statusState?: string): boolean {
+  if (statusState !== 'post') return false;
+  return String(team.score) === 'W';
+}
+
+function parseFightMethod(game: Game): string | undefined {
+  if (game.round && !/^scheduled$/i.test(game.round)) return game.round;
+  if (game.statusState === 'post' && game.status && !/^final$/i.test(game.status)) return game.status;
+  if (game.clock && game.statusState === 'post' && game.clock !== 'Final') return game.clock;
+  return undefined;
+}
+
+function buildFightRoundScores(game: Game): WebFightRoundScore[] | undefined {
+  const away = game.away.linescores ?? [];
+  const home = game.home.linescores ?? [];
+  if (!away.length && !home.length) return undefined;
+  const count = Math.max(away.length, home.length);
+  return Array.from({ length: count }, (_, i) => ({
+    round: i + 1,
+    fighter1: away[i] ?? '—',
+    fighter2: home[i] ?? '—',
+  }));
+}
+
+function toFightFighterView(team: Team, statusState?: string): WebFightFighterView {
+  return {
+    id: team.id,
+    name: team.name,
+    record: team.record,
+    headshot: team.logo,
+    flag: team.flag ?? team.logoFallback,
+    nationality: team.abbr,
+    result: fightResultLabel(team.score, statusState),
+    isWinner: isFightWinner(team, statusState),
+  };
+}
+
+/** Map MMA/boxing bout fields for web fight cards and detail panels. */
+export function adaptFightForWeb(game: Game): WebFightBoutMeta {
+  const weightClass = game.weightClass ?? '';
+  const boutLabel = /championship/i.test(weightClass)
+    ? 'Main Event'
+    : (game.context?.badge || game.context?.round || undefined);
+
+  return {
+    cardName: game.tournamentName ?? game.subtitle?.split(' · ')[0],
+    weightClass: game.weightClass,
+    method: parseFightMethod(game),
+    org: game.sport ?? game.leagueSlug,
+    boutLabel,
+    fighter1: toFightFighterView(game.away, game.statusState),
+    fighter2: toFightFighterView(game.home, game.statusState),
+    roundScores: buildFightRoundScores(game),
+  };
+}
+
 export interface WebGameView {
   id: string;
   status: WebGameStatus;
@@ -43,7 +192,7 @@ export interface WebGameView {
   home: WebTeamView;
   away: WebTeamView;
   quarters?: { labels: string[]; away: (number | string)[]; home: (number | string)[] };
-  periods?: { away: (number | string)[]; home: (number | string)[]; ot?: { away: number | string; home: number | string } };
+  periods?: { labels: string[]; away: (number | string)[]; home: (number | string)[]; ot?: { away: number | string; home: number | string } };
   lineScore?: { innings: (number | string)[]; away: (number | string)[]; home: (number | string)[] };
   leaders?: WebGameLeader[];
   sport?: string;
@@ -57,8 +206,26 @@ export interface WebGameView {
   specialLabel?: string;
   /** Venue · broadcast · attendance formatted line. */
   metaLine?: string;
-  /** Sub-league identifier for filtering/badges (WNBA, NCAAm, UCL, Boxing, etc.). */
+  /** Sub-league identifier for filtering/badges (WNBA, NCAA, UCL, Boxing, etc.). */
   leagueTag?: string;
+  /** Parent sport label for marquee cards (NBA, NFL, NHL, etc.). */
+  eventSportLabel?: string;
+  /** Catalog logo for marquee/special events (from engine classification). */
+  eventLogo?: string;
+  /** Engine sport key when `includeSportMeta` is set (Home / Calendar detail fetch). */
+  engineSport?: SportType;
+  /** ISO start time from engine timing. */
+  startTime?: string;
+  /** Golf tournament fields (from adaptGolfGameForWeb). */
+  tournamentName?: string;
+  par?: string;
+  purse?: string;
+  cutLine?: string;
+  yardage?: string;
+  fieldSize?: number;
+  leaderboardRows?: WebGolfLeaderboardRow[];
+  /** MMA/boxing bout layout (from adaptFightForWeb). */
+  fight?: WebFightBoutMeta;
 }
 
 export interface WebStandingsRow {
@@ -79,6 +246,16 @@ export interface WebDivisionTeam {
   name: string;
   logo: string;
   record: string;
+  color?: string;
+  w?: number;
+  l?: number;
+  d?: number;
+  otl?: number;
+  pts?: string;
+  gd?: string;
+  pct?: string;
+  gb?: string;
+  strk?: string;
 }
 
 export interface WebDivision {
@@ -113,12 +290,31 @@ const FIGHTS_LEAGUE_LABELS: Record<string, string> = {
 };
 
 function deriveLeagueTag(game: Game, sport: SportType): string | undefined {
+  if (sport === 'BASKETBALL') {
+    const sub = game.sport?.toUpperCase();
+    if (sub === 'WNBA') return 'WNBA';
+    if (sub === 'NCAA') return 'NCAA';
+    return 'NBA';
+  }
   if (sport === 'SOCCER' && game.leagueSlug) {
     return SOCCER_LEAGUE_LABELS[game.leagueSlug] ?? game.leagueSlug.toUpperCase();
   }
   if (sport === 'FIGHTS' && game.leagueSlug) {
     return FIGHTS_LEAGUE_LABELS[game.leagueSlug.toLowerCase()] ?? game.leagueSlug.toUpperCase();
   }
+  if (sport === 'TENNIS' && game.sport) {
+    return game.sport === 'WTA' ? 'WTA' : 'ATP';
+  }
+  if (sport === 'GOLF') {
+    const sub = game.sport?.toUpperCase();
+    if (sub === 'LPGA') return 'LPGA';
+    if (sub === 'PGA' || game.leagueSlug === 'pga') return 'PGA';
+    if (game.leagueSlug === 'lpga') return 'LPGA';
+    return 'PGA';
+  }
+  if (sport === 'FOOTBALL') return 'NFL';
+  if (sport === 'HOCKEY') return 'NHL';
+  if (sport === 'BASEBALL') return 'MLB';
   return undefined;
 }
 
@@ -171,6 +367,7 @@ function coerceScore(score: number | string | null | undefined): number {
 }
 
 function buildStatusLabel(game: Game): string {
+  if (game.timing?.stale && game.statusState === 'pre') return 'Delayed';
   const status = mapStatus(game.statusState);
   if (status === 'final') return 'Final';
   if (status === 'live') return game.clock || game.status || 'Live';
@@ -197,6 +394,7 @@ function adaptTeam(team: Team): WebTeamView {
     logo: team.logo || team.logoFallback || '',
     score: coerceScore(team.score),
     record: team.record,
+    id: team.id,
   };
 }
 
@@ -222,7 +420,8 @@ function resolveTeamLogo(game: Game, teamAbbr: string): string {
   return game.home.logo || game.away.logo || '';
 }
 
-function buildLeaders(game: Game): WebGameLeader[] | undefined {
+function buildLeaders(game: Game, sport: SportType): WebGameLeader[] | undefined {
+  if (!getSportProfile(sport).showPerformers) return undefined;
   if (!game.topPerformers?.length) return undefined;
   return game.topPerformers.slice(0, 4).map((p) => ({
     player: p.name,
@@ -240,8 +439,9 @@ function buildLineScore(game: Game, sport: SportType): WebGameView['lineScore'] 
   const home = game.home.linescores ?? [];
   if (!away.length && !home.length) return undefined;
   const count = Math.max(away.length, home.length);
+  const profile = getSportProfile(sport);
   return {
-    innings: Array.from({ length: count }, (_, i) => i + 1),
+    innings: Array.from({ length: count }, (_, i) => profile.getPeriodLabel(i, count)),
     away,
     home,
   };
@@ -253,9 +453,12 @@ function buildPeriods(game: Game, sport: SportType): WebGameView['periods'] | un
   const home = game.home.linescores ?? [];
   if (!away.length && !home.length) return undefined;
 
+  const profile = getSportProfile(sport);
   const regAway = away.slice(0, 3);
   const regHome = home.slice(0, 3);
-  const result: NonNullable<WebGameView['periods']> = { away: regAway, home: regHome };
+  const regCount = Math.max(regAway.length, regHome.length, 3);
+  const labels = Array.from({ length: regCount }, (_, i) => profile.getPeriodLabel(i, regCount));
+  const result: NonNullable<WebGameView['periods']> = { labels, away: regAway, home: regHome };
 
   if (away.length > 3 || home.length > 3) {
     result.ot = {
@@ -287,15 +490,20 @@ export function adaptGameForWeb(
     quarters: buildQuarters(game, sport),
     periods: buildPeriods(game, sport),
     lineScore: buildLineScore(game, sport),
-    leaders: buildLeaders(game),
+    leaders: buildLeaders(game, sport),
     sport: meta?.label,
     sportIcon: meta?.icon,
     link: meta?.route,
     odds: odds ?? undefined,
     isSpecial: isSpecial || undefined,
     specialLabel: specialLbl,
+    eventLogo: specialGameLogo(game) || undefined,
     metaLine: gameMetaLine(game),
     leagueTag: deriveLeagueTag(game, sport),
+    ...(isSpecial ? { eventSportLabel: SPORT_UI[sport].label } : {}),
+    ...(opts.includeSportMeta ? { engineSport: sport, startTime: game.timing?.startTime } : {}),
+    ...(sport === 'GOLF' ? adaptGolfGameForWeb(game) : {}),
+    ...(sport === 'FIGHTS' ? { fight: adaptFightForWeb(game) } : {}),
   };
 }
 
@@ -386,16 +594,46 @@ export function adaptDivisionsFromStandings(groups: StandingsGroup[]): WebDivisi
     for (const row of group.rows) {
       const div = row.team.division || group.name;
       if (!byDivision.has(div)) byDivision.set(div, []);
+      const draws = row.draws ?? 0;
+      const record = row.draws != null
+        ? `${row.wins}-${draws}-${row.losses}`
+        : row.otl != null
+          ? `${row.wins}-${row.losses}-${row.otl}`
+          : `${row.wins}-${row.losses}`;
       byDivision.get(div)!.push({
         abbr: row.team.abbr,
         name: row.team.name,
         logo: row.team.logo,
-        record: `${row.wins}-${row.losses}`,
+        record,
+        color: getTeamAccent({
+          color: row.team.color,
+          alternateColor: row.team.alternateColor,
+        }),
+        w: row.wins,
+        l: row.losses,
+        d: row.draws,
+        otl: row.otl,
+        pts: row.points != null ? String(row.points) : row.winPct,
+        gd: row.goalDiff,
+        pct: row.winPct,
+        gb: row.gamesBack,
+        strk: row.streak,
       });
     }
   }
 
   return [...byDivision.entries()].map(([name, teams]) => ({ name, teams }));
+}
+
+/** Human-readable fight org label from engine game row. */
+export function resolveFightOrgLabel(game: Pick<Game, 'sport' | 'leagueSlug'>): string {
+  const slug = (game.leagueSlug || '').toLowerCase();
+  if (slug && FIGHTS_LEAGUE_LABELS[slug]) return FIGHTS_LEAGUE_LABELS[slug];
+  const sport = (game.sport || '').toUpperCase();
+  if (sport === 'BELLATOR') return 'Bellator';
+  if (sport === 'PFL') return 'PFL';
+  if (sport === 'BOXING' || slug.includes('box')) return 'Boxing';
+  return 'UFC';
 }
 
 export function getSportUiMeta(sport: SportType) {
@@ -433,6 +671,8 @@ export interface WebTennisMatchView {
   surface: string;
   venue?: string;
   broadcast?: string;
+  leagueTag?: string;
+  metaLine?: string;
   player1: WebTennisPlayerView;
   player2: WebTennisPlayerView;
   setScores?: string[];
@@ -464,6 +704,7 @@ function buildTennisSetScores(game: Game): string[] | undefined {
 
 export function adaptTennisGameForWeb(game: Game): WebTennisMatchView {
   const tournamentSlug = game.leagueSlug || game.context?.leagueSlug || 'all';
+  const tourTag = (game.sport ?? '').toUpperCase() === 'WTA' ? 'WTA' : 'ATP';
   return {
     id: game.id,
     status: mapStatus(game.statusState),
@@ -474,6 +715,7 @@ export function adaptTennisGameForWeb(game: Game): WebTennisMatchView {
     surface: game.context?.surface || '',
     venue: game.venue,
     broadcast: game.broadcast,
+    leagueTag: tourTag,
     player1: {
       name: game.away.name,
       initials: playerInitials(game.away.name),
@@ -487,6 +729,7 @@ export function adaptTennisGameForWeb(game: Game): WebTennisMatchView {
       sets: coerceScore(game.home.score),
     },
     setScores: buildTennisSetScores(game),
+    metaLine: gameMetaLine(game),
   };
 }
 
@@ -535,5 +778,80 @@ export function adaptHockeyDivisionStandings(groups: StandingsGroup[]): WebHocke
         pts,
       };
     }),
+  }));
+}
+
+export interface WebGameDetailExtras extends WebGolfTournamentMeta {
+  boxScore?: GameBoxScore;
+  teamStats?: { away: StatItem[]; home: StatItem[] };
+  plays?: PlayEvent[];
+  eventLog?: StatItem[];
+  attendance?: string;
+  leaderboard?: Game['leaderboard'];
+  weightClass?: string;
+  round?: string;
+  fight?: WebFightBoutMeta;
+  dataSources?: string[];
+}
+
+/** Map rich GameDetail fields for UI panels (box score, PBP, team stats, etc.). */
+export function adaptGameDetailForWeb(detail: GameDetail, sport?: SportType): WebGameDetailExtras {
+  const base: WebGameDetailExtras = {
+    boxScore: detail.boxScore,
+    teamStats: detail.teamStats,
+    plays: detail.plays,
+    eventLog: detail.eventLog,
+    attendance: detail.attendance,
+    leaderboard: detail.leaderboard,
+    tournamentName: detail.tournamentName,
+    weightClass: detail.weightClass,
+    round: detail.round,
+    dataSources: detail.dataSources?.length ? [...detail.dataSources] : undefined,
+  };
+
+  if (sport === 'FIGHTS') {
+    return { ...base, fight: adaptFightForWeb(detail) };
+  }
+
+  if (sport === 'GOLF' || detail.leaderboard?.length || detail.tournamentName) {
+    return { ...base, ...adaptGolfGameForWeb(detail) };
+  }
+
+  return base;
+}
+
+export interface WebNflStandingsTeam {
+  id: string;
+  abbr: string;
+  logo: string;
+  w: number;
+  l: number;
+  t: number;
+  pct: string;
+  pf: string;
+  pa: string;
+  strk: string;
+}
+
+export interface WebNflDivisionStandings {
+  division: string;
+  teams: WebNflStandingsTeam[];
+}
+
+export function adaptNflDivisionStandings(groups: StandingsGroup[]): WebNflDivisionStandings[] {
+  return groups.map((group) => ({
+    division: group.name,
+    teams: group.rows.map((row) => ({
+      id: (row.team.abbr || row.team.id || '').toLowerCase(),
+      abbr: row.team.abbr,
+      logo: row.team.logo || '',
+      w: row.wins,
+      l: row.losses,
+      t: 0,
+      pct: row.winPct?.replace(/^0\./, '.') ?? '-',
+      pf: '-',
+      pa: '-',
+      strk: row.streak ?? '-',
+    })),
   }));
 }

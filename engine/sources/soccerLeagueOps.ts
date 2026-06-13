@@ -41,7 +41,7 @@ export async function searchSoccerAthletesAllLeagues(query: string): Promise<unk
         const id = String(hit.athlete?.id ?? hit.id ?? '');
         if (!id || seen.has(id)) continue;
         seen.add(id);
-        merged.push(item);
+        merged.push({ ...(item as Record<string, unknown>), leagueSlug: slug });
       }
     }),
   );

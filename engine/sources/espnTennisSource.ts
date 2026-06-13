@@ -32,27 +32,29 @@ async function fetchTennisAthleteFrom(commonBase: string, playerId: string, labe
   return { bio, overview, stats };
 }
 
-async function fetchTennisScoreboard(base: string, label: string): Promise<any | null> {
-  const key = cacheKey('espn-tennis', label, 'today');
+async function fetchTennisScoreboard(base: string, label: string, dates?: string): Promise<any | null> {
+  const key = cacheKey('espn-tennis', label, dates ?? 'today');
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${base}/scoreboard`, undefined, {
-        label: `espn-tennis-${label}`,
+    ({ bypassCache }) => {
+      const url = dates ? `${base}/scoreboard?dates=${dates}` : `${base}/scoreboard`;
+      return fetchJsonResilient<any>(url, undefined, {
+        label: `espn-tennis-${label}${dates ? `-${dates}` : ''}`,
         retries: 2,
         bypassCache,
-      }),
+      });
+    },
     ['scoreboard', label],
   );
 }
 
-export async function espnAtpScoreboard(): Promise<any | null> {
-  return fetchTennisScoreboard(ATP_BASE, 'atp');
+export async function espnAtpScoreboard(dates?: string): Promise<any | null> {
+  return fetchTennisScoreboard(ATP_BASE, 'atp', dates);
 }
 
-export async function espnWtaScoreboard(): Promise<any | null> {
-  return fetchTennisScoreboard(WTA_BASE, 'wta');
+export async function espnWtaScoreboard(dates?: string): Promise<any | null> {
+  return fetchTennisScoreboard(WTA_BASE, 'wta', dates);
 }
 
 export async function espnTennisMergedScoreboard(): Promise<{ events: any[]; atpEvents?: any[]; wtaEvents?: any[]; leagues?: unknown } | null> {

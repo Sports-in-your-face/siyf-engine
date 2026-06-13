@@ -20,6 +20,7 @@ import { enrichNhlTeam, resolveNhlTeamLogo } from './teamRegistry';
 import { espnSearchAthletesWithFallback } from './espnCoreSearch';
 import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
 import { parseEspnRosterEntries } from './espnRosterUtils';
+import { parseEspnStatLeaders } from './espnStatLeaders';
 
 const BASE = '/api/espn/apis/site/v2/sports/hockey/nhl';
 const COMMON = '/api/espn/apis/common/v3/sports/hockey/nhl';
@@ -126,8 +127,11 @@ export async function espnNhlStandings(): Promise<StandingsGroup[]> {
       });
 
       const wins = parseInt(statVal('wins'), 10) || 0;
-      const losses = parseInt(statVal('losses'), 10) || 0;
       const otl = parseInt(statVal('otLosses') || statVal('OTL') || statVal('overtimeLosses'), 10) || 0;
+      const regLosses = parseInt(statVal('regLosses') || statVal('regulationLosses'), 10);
+      const totalLosses = parseInt(statVal('losses'), 10) || 0;
+      // ESPN `losses` includes OTL; W-L-OTL display needs regulation losses only.
+      const losses = regLosses > 0 ? regLosses : Math.max(0, totalLosses - otl);
       const rawPts = parseInt(statVal('points') || statVal('pts'), 10);
       const points = rawPts > 0 ? rawPts : wins * 2 + otl;
 
@@ -296,7 +300,7 @@ export function parseEspnNhlPlays(summary: any): PlayEvent[] {
 
   const scoringIds = new Set(scoringPlays.map((p: any) => String(p.id ?? '')));
 
-  return rawPlays.slice(0, 40).map((p: any, idx: number) => ({
+  return rawPlays.slice(0, 150).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `P${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -515,4 +519,51 @@ export async function buildEspnNhlPreGameBoxScore(
     away: away ?? { team: awayTeam, players: [], totals: [] },
     home: home ?? { team: homeTeam, players: [], totals: [] },
   };
+}
+
+const NHL_STAT_ICONS: Record<string, string> = {
+  points: 'ph-star',
+  goals: 'ph-target',
+  assists: 'ph-handshake',
+  savePct: 'ph-shield-check',
+  plusMinus: 'ph-plus-minus',
+  penaltyMinutes: 'ph-warning',
+};
+
+export async function espnNhlLeaders(): Promise<unknown | null> {
+  const key = cacheKey('espn-nhl', 'leaders');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/hockey/nhl/leaders?limit=5', undefined, {
+        label: 'espn-nhl-leaders',
+        retries: 2,
+        bypassCache,
+      }),
+    ['standings', 'nhl', 'leaders'],
+  );
+}
+
+export function parseEspnNhlStatLeaders(data: unknown) {
+  const nhlLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nhl/500/${abbr.toLowerCase()}.png`;
+  return parseEspnStatLeaders(data, {
+    categories: [
+      { key: 'points', icon: NHL_STAT_ICONS.points },
+      { key: 'goals', icon: NHL_STAT_ICONS.goals },
+      { key: 'assists', icon: NHL_STAT_ICONS.assists },
+      { key: 'savePct', icon: NHL_STAT_ICONS.savePct, label: 'Save %' },
+      { key: 'plusMinus', icon: NHL_STAT_ICONS.plusMinus, label: 'Plus/Minus' },
+      { key: 'penaltyMinutes', icon: NHL_STAT_ICONS.penaltyMinutes, label: 'PIM' },
+    ],
+    teamLogo: nhlLogo,
+    formatValue: (leader, categoryKey) => {
+      const raw = leader.value;
+      if (raw == null || raw === '') return leader.displayValue ?? '—';
+      const num = Number(raw);
+      if (Number.isNaN(num)) return String(raw);
+      if (categoryKey === 'savePct') return num.toFixed(3).replace(/^0/, '');
+      return String(leader.displayValue ?? raw);
+    },
+  });
 }

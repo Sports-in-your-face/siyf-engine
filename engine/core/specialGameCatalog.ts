@@ -1,4 +1,4 @@
-import { fetchCdnJson } from '../../config/siyfCdn';
+import { fetchCdnJson, cdnUrl } from '../../config/siyfCdn';
 import type { SpecialGameKind } from '../../types';
 import { resolveSpecialEventWindow } from './specialEventSchedule';
 
@@ -52,19 +52,49 @@ interface SpecialEventsCatalog {
 let catalog: CuratedSpecialEvent[] = [];
 let loadPromise: Promise<void> | null = null;
 
+/** Default CDN art per marquee kind — used when catalog row has no logo. */
+export const SPECIAL_EVENT_LOGOS: Partial<Record<SpecialGameKind, string>> = {
+  super_bowl: 'media/superbowl.png',
+  nba_finals: 'media/finals-game.png',
+  wnba_finals: 'media/finals-game.png',
+  stanley_cup: 'media/stanleycup.png',
+  world_cup: 'media/worldcup.png',
+  all_star: 'media/all-star-game.png',
+  world_series: 'media/mlb-commisioner-trophy.png',
+  mls_cup: 'media/mlscup.png',
+  ufc_title: 'media/ufc-belt.png',
+  wbc_title: 'media/wbc-belt.png',
+};
+
+export function resolveSpecialEventLogo(
+  event?: CuratedSpecialEvent,
+  kind?: SpecialGameKind,
+): string | undefined {
+  if (event?.logo) {
+    return event.logo.startsWith('http') ? event.logo : cdnUrl(event.logo);
+  }
+  const key = event?.kind ?? kind;
+  if (!key) return undefined;
+  const path = SPECIAL_EVENT_LOGOS[key];
+  return path ? cdnUrl(path) : undefined;
+}
+
 /** Engine-side schedule/nav presets — merged over CDN rows until meta v2 is live everywhere. */
 const EVENT_PRESETS: Record<string, Partial<CuratedSpecialEvent>> = {
   super_bowl_lx: {
     schedule: { type: 'single_peak', peakDate: '2026-02-08', warmupDays: 14, cooldownDays: 1 },
     nav: { slug: 'super-bowl', shortLabel: 'Super Bowl', showLeadDays: 10, priority: 100, accent: '#e16343' },
+    logo: 'media/superbowl.png',
   },
   nba_all_star_2026: {
     schedule: { type: 'weekend', startDate: '2026-02-13', endDate: '2026-02-16' },
     nav: { slug: 'nba-all-star', shortLabel: 'All-Star', showLeadDays: 4, priority: 85 },
+    logo: 'media/all-star-game.png',
   },
   nba_finals_2026: {
     schedule: { type: 'series', startDate: '2026-06-04', endDate: '2026-06-22', cooldownDays: 1 },
     nav: { slug: 'nba-finals', shortLabel: 'NBA Finals', showLeadDays: 5, priority: 95 },
+    logo: 'media/finals-game.png',
   },
   stanley_cup_2026: {
     kind: 'stanley_cup',
@@ -73,20 +103,29 @@ const EVENT_PRESETS: Record<string, Partial<CuratedSpecialEvent>> = {
     keywords: ['stanley cup', 'stanley cup final', 'cup final'],
     schedule: { type: 'series', startDate: '2026-06-03', endDate: '2026-06-20', cooldownDays: 1 },
     nav: { slug: 'stanley-cup', shortLabel: 'Stanley Cup', showLeadDays: 5, priority: 94 },
+    logo: 'media/stanleycup.png',
     enabled: true,
   },
   world_cup_2026: {
     schedule: { type: 'tournament', startDate: '2026-06-11', endDate: '2026-07-19' },
     nav: { slug: 'world-cup', shortLabel: 'World Cup', showLeadDays: 14, priority: 98 },
+    logo: 'media/worldcup.png',
     enabled: true,
   },
   world_series_2026: {
     schedule: { type: 'series', startDate: '2026-10-24', endDate: '2026-11-05', cooldownDays: 1 },
     nav: { slug: 'world-series', shortLabel: 'World Series', showLeadDays: 5, priority: 90 },
+    logo: 'media/mlb-commisioner-trophy.png',
   },
-  mlb_all_star_2026: {
-    schedule: { type: 'weekend', startDate: '2026-07-13', endDate: '2026-07-15' },
-    nav: { slug: 'mlb-all-star', shortLabel: 'MLB All-Star', showLeadDays: 4, priority: 80 },
+  mls_cup_2026: {
+    kind: 'mls_cup',
+    sport: 'SOCCER',
+    label: 'MLS Cup',
+    keywords: ['mls cup', 'mls cup final'],
+    schedule: { type: 'single_peak', peakDate: '2026-12-06', warmupDays: 7, cooldownDays: 1 },
+    nav: { slug: 'mls-cup', shortLabel: 'MLS Cup', showLeadDays: 5, priority: 86 },
+    logo: 'media/mlscup.png',
+    enabled: true,
   },
 };
 

@@ -1,4 +1,4 @@
-import { APP_SPORT_TO_CDN, soccerCdnTeamKey, type CdnTeamSport } from '../../config/siyfCdn';
+import { APP_SPORT_TO_CDN, BASKETBALL_LEAGUE_TO_CDN, soccerCdnTeamKey, type CdnTeamSport } from '../../config/siyfCdn';
 import { shouldUseNbaTeamCdn } from '../../utils/coerce';
 import type { Team } from '../../types';
 import type { SportType } from '../../services/api';
@@ -14,6 +14,9 @@ import {
   getAllNflTeams,
   getAllSoccerTeams,
   getAllTeams,
+  getAllWnbaTeams,
+  resolveWnbaTeamLogo,
+  enrichWnbaTeam,
   resolveMlbTeamLogo,
   resolveNflTeamLogo,
   resolveNhlTeamLogo,
@@ -23,6 +26,7 @@ import {
 
 const REGISTRY_GETTERS: Record<CdnTeamSport, () => ResolvedTeam[]> = {
   nba: getAllTeams,
+  wnba: getAllWnbaTeams,
   nfl: getAllNflTeams,
   epl: getAllSoccerTeams,
   mls: getAllSoccerTeams,
@@ -32,6 +36,7 @@ const REGISTRY_GETTERS: Record<CdnTeamSport, () => ResolvedTeam[]> = {
 
 const LOGO_RESOLVERS: Record<CdnTeamSport, (abbr: string, existing?: string) => string> = {
   nba: resolveTeamLogo,
+  wnba: resolveWnbaTeamLogo,
   nfl: resolveNflTeamLogo,
   epl: resolveSoccerTeamLogo,
   mls: resolveSoccerTeamLogo,
@@ -41,6 +46,7 @@ const LOGO_RESOLVERS: Record<CdnTeamSport, (abbr: string, existing?: string) => 
 
 const TEAM_ENRICHERS: Record<CdnTeamSport, (abbr: string, partial: Partial<ResolvedTeam> & { name?: string; logo?: string }) => ResolvedTeam> = {
   nba: enrichTeam,
+  wnba: enrichWnbaTeam,
   nfl: enrichNflTeam,
   epl: enrichSoccerTeam,
   mls: enrichSoccerTeam,
@@ -56,20 +62,24 @@ const TEAM_ENRICHERS: Record<CdnTeamSport, (abbr: string, partial: Partial<Resol
   }),
 };
 
-export function cdnKeyForSport(sport: string): CdnTeamSport | undefined {
+export function cdnKeyForSport(sport: string, leagueTag?: string): CdnTeamSport | undefined {
+  if (sport === 'BASKETBALL' && leagueTag) {
+    const sub = BASKETBALL_LEAGUE_TO_CDN[leagueTag.toUpperCase()];
+    if (sub) return sub;
+  }
   if (sport === 'SOCCER') return soccerCdnTeamKey();
   return APP_SPORT_TO_CDN[sport];
 }
 
-export async function ensureCdnTeamsForSport(sport: string): Promise<CdnTeamSport | undefined> {
-  const key = cdnKeyForSport(sport);
+export async function ensureCdnTeamsForSport(sport: string, leagueTag?: string): Promise<CdnTeamSport | undefined> {
+  const key = cdnKeyForSport(sport, leagueTag);
   if (!key) return undefined;
   await ensureTeamRegistry(key);
   return key;
 }
 
-export async function loadCdnTeamsForSport(sport: string): Promise<ResolvedTeam[]> {
-  const key = await ensureCdnTeamsForSport(sport);
+export async function loadCdnTeamsForSport(sport: string, leagueTag?: string): Promise<ResolvedTeam[]> {
+  const key = await ensureCdnTeamsForSport(sport, leagueTag);
   if (!key) return [];
   return REGISTRY_GETTERS[key]() ?? [];
 }

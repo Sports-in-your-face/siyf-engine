@@ -18,12 +18,12 @@ import {
   parseSoccerGameContext,
 } from './parseSoccerContext';
 import { recordParseBatch } from '../../engine/adjuster';
-import { resolveEspnCompetitorField } from '../../engine/adjuster/espnResolver';
 import {
-  resolveEspnDisplayClock,
-  resolveEspnEventField,
-  resolveEspnStatusState,
-} from '../../engine/adjuster/espnEventResolver';
+  resolveCompetitorField,
+  resolveDisplayClock,
+  resolveEventField,
+  resolveStatusState,
+} from '../../engine/acl';
 import { enrichParsedTeamFromCdn } from '../../engine/sources/cdnTeamAssets';
 import { coerceDisplayString, parseDisplayScore, shouldUseNbaTeamCdn } from '../../utils/coerce';
 import { enrichGameWithTiming, extractEspnStartCandidates } from '../../utils/gameTime';
@@ -54,10 +54,10 @@ const WNBA_TEAM_NAMES = [
 
 function detectBasketballLeague(event: EspnGameEvent, competition: EspnCompetition): string | undefined {
   const leagueAbbr = coerceDisplayString(
-    resolveEspnEventField(event, 'leagueAbbr') ?? competition?.league?.abbreviation,
+    resolveEventField(event, 'leagueAbbr') ?? competition?.league?.abbreviation,
   );
   const leagueSlug = coerceDisplayString(
-    resolveEspnEventField(event, 'leagueSlug') ?? competition?.league?.slug,
+    resolveEventField(event, 'leagueSlug') ?? competition?.league?.slug,
   );
   const hint = `${leagueAbbr ?? ''} ${leagueSlug ?? ''} ${event.name ?? ''}`.toUpperCase();
   if (hint.includes('WNBA')) return 'WNBA';
@@ -90,16 +90,16 @@ function getTeamColors(team: EspnTeamEntity) {
 
 function parseStatus(event: EspnGameEvent, sport: SportType, competition?: EspnCompetition) {
   const profile = getSportProfile(sport);
-  const state = resolveEspnStatusState(event, competition);
+  const state = resolveStatusState(event, competition);
   const statusSource = competition?.status ?? event.status;
   const shortDetail = coerceDisplayString(
-    resolveEspnEventField(event, 'statusShortDetail')
+    resolveEventField(event, 'statusShortDetail')
     ?? statusSource?.type?.shortDetail
     ?? statusSource?.type?.detail,
   );
   const detail = coerceDisplayString(statusSource?.type?.detail);
   const clock = coerceDisplayString(
-    resolveEspnDisplayClock(event, competition)
+    resolveDisplayClock(event, competition, { sport, gameId: String(event.id ?? '') })
     ?? statusSource?.displayClock
     ?? detail,
   ) || '—';
@@ -184,9 +184,9 @@ function parseLeaders(competitors: EspnCompetitor[], profile: ReturnType<typeof 
 
 function parseTeamCompetitor(comp: EspnCompetitor, sport: SportType, leagueSport?: string): Team {
   const team = comp.team ?? {};
-  const resolvedName = resolveEspnCompetitorField(comp, 'teamName');
-  const resolvedAbbr = resolveEspnCompetitorField(comp, 'teamAbbr');
-  const resolvedId = resolveEspnCompetitorField(comp, 'teamId');
+  const resolvedName = resolveCompetitorField(comp, 'teamName');
+  const resolvedAbbr = resolveCompetitorField(comp, 'teamAbbr');
+  const resolvedId = resolveCompetitorField(comp, 'teamId');
   const parsed: Team = {
     id: resolvedId != null ? String(resolvedId) : (team.id != null ? String(team.id) : undefined),
     name: coerceDisplayString(resolvedName ?? team.displayName ?? team.name, team.abbreviation || 'TBD'),
@@ -194,13 +194,13 @@ function parseTeamCompetitor(comp: EspnCompetitor, sport: SportType, leagueSport
       resolvedAbbr ?? team.abbreviation,
       coerceDisplayString(team.name, '—').slice(0, 3).toUpperCase() || '—',
     ),
-    score: parseScore(resolveEspnCompetitorField(comp, 'score') ?? comp.score),
+    score: parseScore(resolveCompetitorField(comp, 'score') ?? comp.score),
     logo: getLogo(team),
     ...getTeamColors(team),
     linescores: comp.linescores?.map((l) =>
-      parseScore(resolveEspnCompetitorField(l, 'linescoreValue') ?? l.value) ?? 0,
+      parseScore(resolveCompetitorField(l, 'linescoreValue') ?? l.value) ?? 0,
     ) as (number | string)[],
-    record: coerceDisplayString(resolveEspnCompetitorField(comp, 'record')),
+    record: coerceDisplayString(resolveCompetitorField(comp, 'record')),
   };
   if (sport === 'BASKETBALL' && leagueSport && !shouldUseNbaTeamCdn({ sport: leagueSport })) {
     return parsed;
@@ -212,7 +212,7 @@ function parseAthleteCompetitor(comp: EspnCompetitor, sport?: SportType, tourHin
   const athlete = comp.athlete ?? {};
   const record = comp.records?.[0]?.summary;
   const base = {
-    name: coerceDisplayString(resolveEspnCompetitorField(comp, 'teamName'), 'TBD'),
+    name: coerceDisplayString(resolveCompetitorField(comp, 'teamName'), 'TBD'),
     abbr: athlete.flag?.abbreviation || athlete.shortName?.slice(0, 3)?.toUpperCase() || '—',
     score: parseScore(comp.score ?? comp.linescore?.score),
     linescores: comp.linescores?.map((l) => parseScore(l.value) ?? 0) as (number | string)[],
@@ -378,7 +378,7 @@ function parseMatchupEvent(event: EspnGameEvent, sport: SportType): Game | null 
   if (sorted.length < 2) return null;
 
   const leagueAbbr = coerceDisplayString(
-    resolveEspnEventField(event, 'leagueAbbr') ?? competition?.league?.abbreviation,
+    resolveEventField(event, 'leagueAbbr') ?? competition?.league?.abbreviation,
   );
   const tourHint: 'ATP' | 'WTA' = /WTA/i.test(leagueAbbr ?? '') ? 'WTA' : 'ATP';
 

@@ -18,6 +18,27 @@ export function buildTennisHeadshotUrl(athleteId?: string | number | null): stri
   return `${ESPN_TENNIS_HEADSHOT_BASE}/${athleteId}.png`;
 }
 
+/** Two-letter initials for fighter/athlete avatar fallbacks. */
+export function fighterInitials(name?: string | null): string {
+  if (!name) return '?';
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+}
+
+/** Prefer explicit headshot URL, then ESPN CDN from athlete id. */
+export function resolveFighterDisplayHeadshot(opts: {
+  athleteId?: string | number | null;
+  headshot?: string | null;
+}): string | undefined {
+  if (opts.headshot) return opts.headshot;
+  return buildMmaHeadshotUrl(opts.athleteId);
+}
+
 export function isCountryFlagUrl(url?: string): boolean {
   return Boolean(url && /teamlogos\/countries\//i.test(url));
 }

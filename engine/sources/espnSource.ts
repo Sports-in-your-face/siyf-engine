@@ -20,6 +20,7 @@ import type {
 import { enrichTeam, resolveTeamLogo } from './teamRegistry';
 import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
 import { parseEspnRosterEntries } from './espnRosterUtils';
+import { parseEspnStatLeaders } from './espnStatLeaders';
 
 const BASE = '/api/espn/apis/site/v2/sports/basketball/nba';
 const COMMON = '/api/espn/apis/common/v3/sports/basketball/nba';
@@ -443,7 +444,7 @@ export function parseEspnPlays(summary: any): PlayEvent[] {
   const plays = summary?.plays ?? [];
   if (!Array.isArray(plays) || !plays.length) return [];
 
-  return [...plays].reverse().slice(0, 40).map((p: any, idx: number) => ({
+  return [...plays].reverse().slice(0, 150).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -521,4 +522,90 @@ export function parseEspnRoster(data: any): Array<{
   headshot?: string;
 }> {
   return parseEspnRosterEntries(data);
+}
+
+const NBA_STAT_ICONS: Record<string, string> = {
+  pointsPerGame: 'ph-basketball',
+  reboundsPerGame: 'ph-arrows-out',
+  assistsPerGame: 'ph-hand-pointing',
+  stealsPerGame: 'ph-shield-check',
+  blocksPerGame: 'ph-wall',
+  fieldGoalPercentage: 'ph-target',
+  '3PointPct': 'ph-crosshair',
+};
+
+export async function espnNbaLeaders(): Promise<unknown | null> {
+  const key = cacheKey('espn', 'leaders');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/basketball/nba/leaders?limit=5', undefined, {
+        label: 'espn-nba-leaders',
+        retries: 2,
+        bypassCache,
+      }),
+    ['standings', 'nba', 'leaders'],
+  );
+}
+
+export function parseEspnNbaStatLeaders(data: unknown) {
+  const nbaLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
+  return parseEspnStatLeaders(data, {
+    categories: [
+      { key: 'pointsPerGame', icon: NBA_STAT_ICONS.pointsPerGame },
+      { key: 'reboundsPerGame', icon: NBA_STAT_ICONS.reboundsPerGame },
+      { key: 'assistsPerGame', icon: NBA_STAT_ICONS.assistsPerGame },
+      { key: 'stealsPerGame', icon: NBA_STAT_ICONS.stealsPerGame },
+      { key: 'blocksPerGame', icon: NBA_STAT_ICONS.blocksPerGame },
+      { key: 'fieldGoalPercentage', icon: NBA_STAT_ICONS.fieldGoalPercentage, label: 'FG%' },
+      { key: '3PointPct', icon: NBA_STAT_ICONS['3PointPct'], label: '3PT%' },
+    ],
+    teamLogo: nbaLogo,
+  });
+}
+
+const WNBA_BASE = '/api/espn/apis/site/v2/sports/basketball/wnba';
+
+export async function espnWnbaTeams(): Promise<any | null> {
+  const key = cacheKey('espn', 'wnba-teams');
+  return cachedFetch(
+    key,
+    profileForResource('teams'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/teams`, undefined, {
+        label: 'espn-wnba-teams',
+        retries: 2,
+        bypassCache,
+      }),
+    ['teams', 'wnba'],
+  );
+}
+
+export async function espnWnbaTeamRoster(teamId: string): Promise<any | null> {
+  const key = cacheKey('espn', 'wnba-roster', teamId);
+  return cachedFetch(
+    key,
+    profileForResource('roster'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/roster`, undefined, {
+        label: `espn-wnba-roster-${teamId}`,
+        bypassCache,
+      }),
+    [`team:${teamId}`, 'roster', 'wnba'],
+  );
+}
+
+export async function espnWnbaTeamSchedule(teamId: string): Promise<any | null> {
+  const key = cacheKey('espn', 'wnba-schedule', teamId);
+  return cachedFetch(
+    key,
+    profileForResource('schedule'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/schedule`, undefined, {
+        label: `espn-wnba-schedule-${teamId}`,
+        bypassCache,
+      }),
+    [`team:${teamId}`, 'schedule', 'wnba'],
+  );
 }

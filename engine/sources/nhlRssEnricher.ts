@@ -5,6 +5,7 @@ import {
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
+import { applyRosterInjuriesFromItems } from '../core/rssRumorUtils';
 import type { Game, Player, ResolvedTeam } from '../core/types';
 
 export type NhlRssFeedRole =
@@ -88,17 +89,7 @@ export async function enrichNhlRosterWithInjuries(roster: Player[]): Promise<Pla
   const injuryItems: RssItem[] = [];
   for (const feed of feeds) injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
 
-  return roster.map((player) => {
-    const hit = injuryItems.find((item) => {
-      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
-      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|gtd|inactive|day-to-day/i.test(text);
-    });
-    if (!hit) return player;
-    return {
-      ...player,
-      position: player.position.includes('·') ? player.position : `${player.position} · ${hit.title.slice(0, 40)}`,
-    };
-  });
+  return applyRosterInjuriesFromItems(roster, injuryItems);
 }
 
 export async function enrichNhlTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {

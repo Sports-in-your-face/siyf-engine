@@ -64,6 +64,20 @@ export const CHAOS_SCENARIOS: ChaosScenario[] = [
     },
   },
   {
+    id: 'score-fuzzy-rename',
+    fixtureId: 'basketball-score-moved',
+    description: 'ESPN renames scoring → scorng — fuzzy resolver recovers',
+    expectRecovery: true,
+    mutate: (raw) => {
+      const next = cloneFixture(raw);
+      for (const comp of [0, 1] as const) {
+        const parent: MutationPath = ['competitions', 0, 'competitors', comp];
+        renameKey(next, parent, 'scoring', 'scorng');
+      }
+      return next;
+    },
+  },
+  {
     id: 'team-name-short-display',
     ...teamEvent('basketball-live'),
     description: 'ESPN drops displayName, keeps shortDisplayName only',

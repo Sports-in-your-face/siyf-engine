@@ -20,6 +20,7 @@ import { enrichMlbTeam, resolveMlbTeamLogo } from './teamRegistry';
 import { espnSearchAthletesWithFallback } from './espnCoreSearch';
 import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
 import { parseEspnRosterEntries } from './espnRosterUtils';
+import { parseEspnStatLeaders } from './espnStatLeaders';
 
 const BASE = '/api/espn/apis/site/v2/sports/baseball/mlb';
 const COMMON = '/api/espn/apis/common/v3/sports/baseball/mlb';
@@ -289,7 +290,7 @@ export function parseEspnMlbPlays(summary: any): PlayEvent[] {
 
   if (!Array.isArray(rawPlays) || !rawPlays.length) return [];
 
-  return [...rawPlays].reverse().slice(0, 40).map((p: any, idx: number) => ({
+  return [...rawPlays].reverse().slice(0, 150).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Inning ${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -388,4 +389,64 @@ export function parseEspnMlbTeamsList(data: any) {
 
 export function parseEspnMlbRoster(data: any) {
   return parseEspnRosterEntries(data);
+}
+
+const MLB_STAT_ICONS: Record<string, string> = {
+  homeRuns: 'ph-lightning',
+  avg: 'ph-target',
+  ERA: 'ph-shield',
+  RBIs: 'ph-users-three',
+  wins: 'ph-trophy',
+  strikeouts: 'ph-fire',
+};
+
+export async function espnMlbLeaders(): Promise<unknown | null> {
+  const key = cacheKey('espn-mlb', 'leaders');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/baseball/mlb/leaders?limit=5', undefined, {
+        label: 'espn-mlb-leaders',
+        retries: 2,
+        bypassCache,
+      }),
+    ['standings', 'mlb', 'leaders'],
+  );
+}
+
+export function parseEspnMlbStatLeaders(data: unknown) {
+  const mlbLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/mlb/500/${abbr.toLowerCase()}.png`;
+  return parseEspnStatLeaders(data, {
+    categories: [
+      { key: 'homeRuns', icon: MLB_STAT_ICONS.homeRuns },
+      { key: 'avg', icon: MLB_STAT_ICONS.avg, label: 'Batting Avg' },
+      { key: 'ERA', icon: MLB_STAT_ICONS.ERA },
+      { key: 'RBIs', icon: MLB_STAT_ICONS.RBIs },
+      { key: 'wins', icon: MLB_STAT_ICONS.wins },
+      { key: 'strikeouts', icon: MLB_STAT_ICONS.strikeouts },
+    ],
+    teamLogo: mlbLogo,
+    formatValue: formatMlbLeaderValue,
+  });
+}
+
+function formatMlbLeaderValue(
+  leader: { displayValue?: string; value?: string | number },
+  categoryKey: string,
+): string {
+  const raw = leader.value;
+  if (raw == null || raw === '') return leader.displayValue ?? '—';
+
+  const num = Number(raw);
+  if (Number.isNaN(num)) return String(raw);
+
+  switch (categoryKey) {
+    case 'avg':
+      return num.toFixed(3).replace(/^0/, '');
+    case 'ERA':
+      return num.toFixed(2);
+    default:
+      return String(Math.round(num));
+  }
 }

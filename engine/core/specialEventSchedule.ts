@@ -1,9 +1,9 @@
 import type { Game, SpecialGameKind } from '../../types';
-import { resolveCdnAsset } from '../../config/siyfCdn';
 import { classifySpecialGame } from './classifySpecialGame';
 import {
   getCuratedSpecialEvents,
   matchCuratedEvent,
+  resolveSpecialEventLogo,
   type CuratedSpecialEvent,
   type SpecialEventScheduleType,
 } from './specialGameCatalog';
@@ -165,8 +165,7 @@ function eventRoute(event: CuratedSpecialEvent): string {
 }
 
 function eventLogoUrl(event: CuratedSpecialEvent): string | undefined {
-  if (!event.logo) return undefined;
-  return resolveCdnAsset(event.logo) || undefined;
+  return resolveSpecialEventLogo(event);
 }
 
 export function resolveSpecialEventWindow(
@@ -284,6 +283,7 @@ const KIND_ALIASES: Partial<Record<SpecialGameKind, SpecialGameKind[]>> = {
   nba_finals: ['playoff', 'conference_final'],
   wnba_finals: ['playoff'],
   world_series: ['playoff'],
+  mls_cup: ['playoff'],
   super_bowl: ['conference_final', 'playoff'],
 };
 

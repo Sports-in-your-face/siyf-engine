@@ -1,4 +1,7 @@
+import { initAdjusterCdn } from './adjuster/adjusterCdnInit';
 import { createSportEngine } from './createSportEngine';
+
+initAdjusterCdn();
 import { baseballConfig } from './configs/baseball';
 import { basketballConfig } from './configs/basketball';
 import { footballConfig } from './configs/football';

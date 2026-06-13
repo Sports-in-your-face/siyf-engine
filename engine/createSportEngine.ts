@@ -1,8 +1,9 @@
 import { getEspnEvents } from './core/espnEventTypes';
 import { parseEventsForSport } from '../services/parsers/parseGameEvent';
-import { cacheGet, cacheGetStale, cacheIsFresh, cacheKey, cacheSetWithProfile, withCache } from './core/cache';
+import { cacheBustKey, cacheGet, cacheGetStale, cacheIsFresh, cacheKey, cacheSetWithProfile, withCache } from './core/cache';
 import { dedupeRequest } from './core/resilientFetch';
 import { syncCacheFromScoreboard } from './core/cacheInvalidation';
+import { shouldSkipScoreboardEnrichment } from './adjuster/deltaFetch';
 import { CACHE_PROFILES, profileForGameState } from './core/cacheTiers';
 import { cascadeFirst, cascadeMergePartial } from './core/providerRunner';
 import { mergePlayerDetails } from './core/mergePayload';
@@ -137,9 +138,10 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
     const preEnrichGames = games;
     const enrichmentVariants: Game[][] = [];
+    const skipHeavyEnrichment = shouldSkipScoreboardEnrichment(games);
 
     const enrichmentTasks: Promise<Game[]>[] = [];
-    if (caps.pipeline.enrichMissingContext && config.enrichMissingContext) {
+    if (!skipHeavyEnrichment && caps.pipeline.enrichMissingContext && config.enrichMissingContext) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -150,7 +152,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         ),
       );
     }
-    if (caps.pipeline.rss) {
+    if (!skipHeavyEnrichment && caps.pipeline.rss) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -161,7 +163,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         ),
       );
     }
-    if (caps.pipeline.odds) {
+    if (!skipHeavyEnrichment && caps.pipeline.odds) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -724,6 +726,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
   const engine: SportEngine = {
     getScoreboard,
+    bustScoreboardCache: () => cacheBustKey(config.scoreboardCacheKey),
     getLeagueContext: () => cachedLeagueContext,
     getGameDetail,
     prefetchLiveDetails: (games) => prefetchLiveDetails((g) => getGameDetail(g), games, log),

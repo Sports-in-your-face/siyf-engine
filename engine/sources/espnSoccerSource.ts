@@ -21,6 +21,7 @@ import type {
 } from '../core/types';
 import { extractEspnLeagueSlug, type EspnCompetitionRef, type EspnScoreboardEvent } from '../core/espnEventTypes';
 import { enrichSoccerTeam, resolveSoccerTeamLogo } from './teamRegistry';
+import { parseEspnStatLeaders } from './espnStatLeaders';
 
 export const DEFAULT_SOCCER_LEAGUE = (() => {
   const fromProcess = typeof process !== 'undefined' ? process.env.SIYF_SOCCER_LEAGUE : undefined;
@@ -158,14 +159,22 @@ function parseStandingsRow(entry: any, idx: number) {
     alternateColor: team.alternateColor ? `#${team.alternateColor}` : undefined,
   });
 
+  const draws = parseInt(statVal('ties') || statVal('draws') || statVal('T'), 10) || 0;
+  const rawPts = parseInt(statVal('points') || statVal('Pts') || statVal('pts'), 10);
+  const goalDiff = statVal('pointDifference') || statVal('goalDifference') || statVal('pointsDiff') || statVal('gd') || undefined;
+  const points = statVal('points') || statVal('Pts') || statVal('pts') || undefined;
+
   return {
     rank: idx + 1,
     team: resolved,
     wins: parseInt(statVal('wins'), 10) || parseInt(statVal('W'), 10) || 0,
     losses: parseInt(statVal('losses'), 10) || parseInt(statVal('L'), 10) || 0,
-    winPct: statVal('winPercent') || statVal('points') || statVal('Pts') || '.000',
+    draws,
+    points: rawPts > 0 ? rawPts : undefined,
+    goalDiff,
+    winPct: points || statVal('winPercent') || '.000',
     streak: statVal('streak') || undefined,
-    gamesBack: statVal('gamesBehind') || statVal('gamesBack') || undefined,
+    gamesBack: statVal('gamesBehind') || statVal('gamesBack') || statVal('pointsBehind') || undefined,
   };
 }
 
@@ -303,7 +312,7 @@ export function parseEspnSoccerPlays(summary: any): PlayEvent[] {
   const raw = Array.isArray(keyEvents) ? keyEvents : [];
 
   if (raw.length) {
-    return [...raw].reverse().slice(0, 40).map((p: any, idx: number) => ({
+    return [...raw].reverse().slice(0, 150).map((p: any, idx: number) => ({
       id: String(p.id ?? idx),
       period: p.period?.displayValue ?? p.period?.type ?? '',
       clock: p.clock?.displayValue ?? p.time?.displayValue ?? '',
@@ -316,7 +325,7 @@ export function parseEspnSoccerPlays(summary: any): PlayEvent[] {
   const plays = summary?.plays ?? summary?.rosters?.events ?? [];
   if (!Array.isArray(plays) || !plays.length) return [];
 
-  return [...plays].reverse().slice(0, 40).map((p: any, idx: number) => ({
+  return [...plays].reverse().slice(0, 150).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? '',
     clock: p.clock?.displayValue ?? '',
@@ -413,6 +422,41 @@ export function parseEspnSoccerTeamsList(data: any) {
 
 export function parseEspnSoccerRoster(data: any) {
   return parseEspnRosterEntries(data);
+}
+
+const MLS_STAT_ICONS: Record<string, string> = {
+  goals: 'ph-soccer-ball',
+  assists: 'ph-users-three',
+  saves: 'ph-hand-palm',
+  shotsOnGoal: 'ph-target',
+};
+
+export async function espnMlsLeaders(): Promise<unknown | null> {
+  const key = cacheKey('espn-soccer', 'usa.1', 'leaders');
+  return cachedFetch(
+    key,
+    profileForResource('standings'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/soccer/usa.1/leaders?limit=5', undefined, {
+        label: 'espn-mls-leaders',
+        retries: 2,
+        bypassCache,
+      }),
+    ['standings', 'soccer:usa.1', 'leaders'],
+  );
+}
+
+export function parseEspnMlsStatLeaders(data: unknown) {
+  const mlsLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/soccer/500/${abbr.toLowerCase()}.png`;
+  return parseEspnStatLeaders(data, {
+    categories: [
+      { key: 'goals', icon: MLS_STAT_ICONS.goals },
+      { key: 'assists', icon: MLS_STAT_ICONS.assists },
+      { key: 'saves', icon: MLS_STAT_ICONS.saves },
+      { key: 'shotsOnGoal', icon: MLS_STAT_ICONS.shotsOnGoal, label: 'Shots on Goal' },
+    ],
+    teamLogo: mlsLogo,
+  });
 }
 
 export function extractLeagueSlug(

@@ -7,6 +7,13 @@ export interface StatItem {
   value: string | number;
 }
 
+export interface PlayerRumor {
+  headline: string;
+  url?: string;
+  source?: string;
+  date?: string;
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -19,6 +26,7 @@ export interface Player {
   height?: string;
   weight?: string;
   teamAccent?: string;
+  injuryStatus?: string;
 }
 
 export interface PlayerStatSplit {
@@ -72,7 +80,7 @@ export interface PlayerDetails {
   headshot?: string;
   debutYear?: number;
   injuryStatus?: string;
-  rumors?: string[];
+  rumors?: (string | PlayerRumor)[];
   heroStats: StatItem[];
   seasonSplits: PlayerStatSplit[];
   seasonHistory: PlayerSeasonRow[];
@@ -172,6 +180,9 @@ export type SpecialGameKind =
   | 'playoff'
   | 'super_bowl'
   | 'world_series'
+  | 'mls_cup'
+  | 'ufc_title'
+  | 'wbc_title'
   | 'nba_finals'
   | 'wnba_finals'
   | 'stanley_cup'
