@@ -21,6 +21,21 @@ export {
   getSpecialGames,
 } from './core/classifySpecialGame';
 export { preloadSpecialEventCatalog, getCuratedSpecialEvents } from './core/specialGameCatalog';
+export type { CuratedSpecialEvent, SpecialEventNav, SpecialEventSchedule, SpecialEventScheduleType } from './core/specialGameCatalog';
+export {
+  resolveSpecialEventWindow,
+  getVisibleSpecialEventNav,
+  getNextSpecialEvent,
+  resolveSpecialEventBySlug,
+  isSpecialEventNavVisible,
+  isSpecialEventHubActive,
+  filterGamesForSpecialEvent,
+  gameMatchesSpecialEvent,
+  formatSpecialEventStatus,
+  parseDateStart,
+  parseDateEnd,
+} from './core/specialEventSchedule';
+export type { SpecialEventWindow, SpecialEventPhase } from './core/specialEventSchedule';
 export type {
   GameDetail,
   ResolvedTeam,

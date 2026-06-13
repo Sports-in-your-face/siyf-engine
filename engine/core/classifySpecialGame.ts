@@ -7,6 +7,7 @@ const MARQUEE_KINDS = new Set<SpecialGameKind>([
   'world_series',
   'nba_finals',
   'wnba_finals',
+  'stanley_cup',
   'all_star',
   'world_cup',
   'euro',
@@ -66,6 +67,14 @@ const PATTERN_RULES: PatternRule[] = [
     sports: ['BASKETBALL'],
     weight: 90,
     source: 'pattern:wnba_finals',
+  },
+  {
+    kind: 'stanley_cup',
+    label: 'Stanley Cup Final',
+    patterns: [/stanley\s*cup(\s*final)?/i],
+    sports: ['HOCKEY'],
+    weight: 92,
+    source: 'pattern:stanley_cup',
   },
   {
     kind: 'all_star',
@@ -258,6 +267,14 @@ function contextHits(game: Game): RuleHit[] {
         label: ctx.round ?? 'World Series',
         source: 'context:finals',
         signal: `phase=finals sport=BASEBALL round=${ctx.round ?? 'unknown'}`,
+      });
+    } else if (sport === 'HOCKEY') {
+      hits.push({
+        kind: 'stanley_cup',
+        weight: /stanley\s*cup/i.test(`${ctx.headline ?? ''} ${ctx.round ?? ''}`) ? 95 : 72,
+        label: ctx.round ?? 'Stanley Cup Final',
+        source: 'context:finals',
+        signal: `phase=finals sport=HOCKEY round=${ctx.round ?? 'unknown'}`,
       });
     }
   }

@@ -174,6 +174,7 @@ export type SpecialGameKind =
   | 'world_series'
   | 'nba_finals'
   | 'wnba_finals'
+  | 'stanley_cup'
   | 'all_star'
   | 'world_cup'
   | 'euro'

@@ -28,6 +28,7 @@
     "./services/search": "./services/search.ts",
     "./services/webView": "./services/webView.ts",
     "./services/scoreboardPoller": "./services/scoreboardPoller.ts",
+    "./services/specialEvents": "./services/specialEvents.ts",
     "./services/parsers/*": "./services/parsers/*",
     "./config/*": "./config/*",
     "./utils/*": "./utils/*",
