@@ -8,6 +8,9 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { espnSearchAthletesWithFallback } from './espnCoreSearch';
+import { fetchEspnStandingsPayload } from './espnStandingsUtils';
+import { parseEspnRosterEntries } from './espnRosterUtils';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -110,10 +113,14 @@ export async function espnSoccerStandings(league = DEFAULT_SOCCER_LEAGUE): Promi
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data = await fetchJsonResilient<any>(`${basePath(league)}/standings`, undefined, { label: `espn-soccer-${league}-standings` });
+  const data = await fetchEspnStandingsPayload(
+    `${basePath(league)}/standings`,
+    `/api/espn/apis/v2/sports/soccer/${league}/standings`,
+    `espn-soccer-${league}-standings`,
+  );
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = data.children ?? data.standings?.entries ?? data.standings?.children ?? [];
+  const children = (data.children ?? data.standings?.entries ?? data.standings?.children ?? []) as any[];
   if (!children.length && data.standings?.entries) {
     const entries = data.standings.entries;
     const groups: StandingsGroup[] = [{
@@ -199,17 +206,16 @@ export async function espnSoccerAthlete(id: string, league = DEFAULT_SOCCER_LEAG
 
 export async function espnSoccerSearchAthletes(query: string, league = DEFAULT_SOCCER_LEAGUE): Promise<any[]> {
   const key = cacheKey('espn-soccer', league, 'search', query.toLowerCase());
+  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async ({ bypassCache }) => {
-      const data = await fetchJsonResilient<any>(
-        `${commonPath(league)}/athletes?search=${encodeURIComponent(query)}&limit=10`,
-        undefined,
-        { label: 'espn-soccer-athlete-search', bypassCache },
-      );
-      return data?.items ?? data?.athletes ?? [];
-    },
+    async () =>
+      espnSearchAthletesWithFallback(
+        query,
+        { sport: 'soccer', label: 'soccer' },
+        `${commonPath(league)}/athletes?search=${encoded}&limit=10`,
+      ),
     ['search'],
   );
   return result ?? [];
@@ -406,17 +412,7 @@ export function parseEspnSoccerTeamsList(data: any) {
 }
 
 export function parseEspnSoccerRoster(data: any) {
-  const athletes = data?.athletes ?? data?.team?.athletes ?? [];
-  return athletes.map((a: any) => {
-    const athlete = a.athlete ?? a;
-    return {
-      id: String(athlete.id),
-      name: athlete.displayName ?? athlete.fullName,
-      position: athlete.position?.abbreviation ?? athlete.position?.name ?? '—',
-      number: athlete.jersey,
-      headshot: athlete.headshot?.href ?? athlete.headshot,
-    };
-  });
+  return parseEspnRosterEntries(data);
 }
 
 export function extractLeagueSlug(

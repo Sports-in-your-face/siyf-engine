@@ -17,6 +17,9 @@ import type {
   Team,
 } from '../core/types';
 import { enrichNhlTeam, resolveNhlTeamLogo } from './teamRegistry';
+import { espnSearchAthletesWithFallback } from './espnCoreSearch';
+import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
+import { parseEspnRosterEntries } from './espnRosterUtils';
 
 const BASE = '/api/espn/apis/site/v2/sports/hockey/nhl';
 const COMMON = '/api/espn/apis/common/v3/sports/hockey/nhl';
@@ -95,14 +98,14 @@ export async function espnNhlStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data =
-    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-nhl-standings' })) ??
-    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-nhl-standings-alt' }));
-
+  const data = await fetchEspnStandingsPayload(
+    `${BASE}/standings`,
+    STANDINGS_ALT,
+    'espn-nhl-standings',
+  );
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = data.children ?? data.standings?.children ?? [];
-  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
+  const children = extractStandingsChildren(data);
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Division',
@@ -122,11 +125,19 @@ export async function espnNhlStandings(): Promise<StandingsGroup[]> {
         alternateColor: team.alternateColor ? `#${team.alternateColor}` : undefined,
       });
 
+      const wins = parseInt(statVal('wins'), 10) || 0;
+      const losses = parseInt(statVal('losses'), 10) || 0;
+      const otl = parseInt(statVal('otLosses') || statVal('OTL') || statVal('overtimeLosses'), 10) || 0;
+      const rawPts = parseInt(statVal('points') || statVal('pts'), 10);
+      const points = rawPts > 0 ? rawPts : wins * 2 + otl;
+
       return {
         rank: idx + 1,
         team: resolved,
-        wins: parseInt(statVal('wins'), 10) || 0,
-        losses: parseInt(statVal('losses'), 10) || 0,
+        wins,
+        losses,
+        otl,
+        points,
         winPct: statVal('winPercent') || statVal('winPct') || '.000',
         streak: statVal('streak') || undefined,
         gamesBack: statVal('gamesBehind') || statVal('gamesBack') || undefined,
@@ -159,17 +170,16 @@ export async function espnNhlAthlete(id: string): Promise<any | null> {
 
 export async function espnNhlSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-nhl', 'search', query.toLowerCase());
+  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async ({ bypassCache }) => {
-      const data = await fetchJsonResilient<any>(
-        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
-        undefined,
-        { label: 'espn-nhl-athlete-search', bypassCache },
-      );
-      return data?.items ?? data?.athletes ?? [];
-    },
+    async () =>
+      espnSearchAthletesWithFallback(
+        query,
+        { sport: 'hockey', league: 'nhl', label: 'nhl' },
+        `${COMMON}/athletes?search=${encoded}&limit=10`,
+      ),
     ['search'],
   );
   return result ?? [];
@@ -374,17 +384,7 @@ export function parseEspnNhlTeamsList(data: any) {
 }
 
 export function parseEspnNhlRoster(data: any) {
-  const athletes = data?.athletes ?? data?.team?.athletes ?? [];
-  return athletes.map((a: any) => {
-    const athlete = a.athlete ?? a;
-    return {
-      id: String(athlete.id),
-      name: athlete.displayName ?? athlete.fullName,
-      position: athlete.position?.abbreviation ?? athlete.position?.name ?? '—',
-      number: athlete.jersey,
-      headshot: athlete.headshot?.href ?? athlete.headshot,
-    };
-  });
+  return parseEspnRosterEntries(data);
 }
 
 function collectFeaturedPlayerIds(summary: any, teamId: string): string[] {

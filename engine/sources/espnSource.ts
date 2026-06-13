@@ -8,6 +8,7 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { espnSearchAthletesWithFallback } from './espnCoreSearch';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -17,6 +18,8 @@ import type {
   Team,
 } from '../core/types';
 import { enrichTeam, resolveTeamLogo } from './teamRegistry';
+import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
+import { parseEspnRosterEntries } from './espnRosterUtils';
 
 const BASE = '/api/espn/apis/site/v2/sports/basketball/nba';
 const COMMON = '/api/espn/apis/common/v3/sports/basketball/nba';
@@ -96,14 +99,14 @@ export async function espnStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data =
-    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-standings' })) ??
-    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-standings-alt' }));
-
+  const data = await fetchEspnStandingsPayload(
+    `${BASE}/standings`,
+    STANDINGS_ALT,
+    'espn-standings',
+  );
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = data.children ?? data.standings?.children ?? [];
-  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
+  const children = extractStandingsChildren(data);
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Conference',
@@ -176,24 +179,23 @@ export async function espnAthlete(id: string): Promise<any | null> {
 
 export async function espnSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn', 'search', query.toLowerCase());
+  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async ({ bypassCache }) => {
-      const opts = { label: 'espn-athlete-search', bypassCache, retries: 1 };
-      const encoded = encodeURIComponent(query.trim());
-      const data =
-        (await fetchJsonResilient<any>(
-          `${COMMON}/athletes?search=${encoded}&limit=10`,
-          undefined,
-          opts,
-        ))
-        ?? (await fetchJsonResilient<any>(
-          `${BASE}/athletes?search=${encoded}&limit=10`,
-          undefined,
-          { ...opts, label: 'espn-athlete-search-site-v2' },
-        ));
-      return data?.items ?? data?.athletes ?? [];
+    async () => {
+      const items = await espnSearchAthletesWithFallback(
+        query,
+        { sport: 'basketball', league: 'nba', label: 'nba' },
+        `${COMMON}/athletes?search=${encoded}&limit=10`,
+      );
+      if (items.length) return items;
+      const siteV2 = await fetchJsonResilient<any>(
+        `${BASE}/athletes?search=${encoded}&limit=10`,
+        undefined,
+        { label: 'espn-athlete-search-site-v2', retries: 0, timeout: 8_000 },
+      );
+      return siteV2?.items ?? siteV2?.athletes ?? [];
     },
     ['search'],
   );
@@ -518,15 +520,5 @@ export function parseEspnRoster(data: any): Array<{
   number?: string;
   headshot?: string;
 }> {
-  const athletes = data?.athletes ?? data?.team?.athletes ?? [];
-  return athletes.map((a: any) => {
-    const athlete = a.athlete ?? a;
-    return {
-      id: String(athlete.id),
-      name: athlete.displayName ?? athlete.fullName,
-      position: athlete.position?.abbreviation ?? athlete.position?.name ?? '—',
-      number: athlete.jersey,
-      headshot: athlete.headshot?.href ?? athlete.headshot,
-    };
-  });
+  return parseEspnRosterEntries(data);
 }

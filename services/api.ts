@@ -22,6 +22,8 @@ import { dedupeGamesById } from '../engine/core/mergeGames';
 import { getEngine, type EngineSport, type ResolvedTeam, type StandingsGroup } from '../engine';
 import { getSportCapabilities } from '../engine/core/sportCapabilities';
 import { isEngineSport } from '../engine/engineSports';
+import { CACHE_PROFILES } from '../engine/core/cacheTiers';
+import { sessionGet, sessionSet } from '../engine/core/sessionPersist';
 import type { LeagueContext } from '../types';
 
 export const SPORT_ENDPOINTS = {
@@ -96,9 +98,25 @@ export function getCachedTeams(sport: SportType): SelectableTeam[] | undefined {
   return teamsCache[sport];
 }
 
-export function prefetchTeams(sports: SportType[] = ['BASKETBALL', 'FOOTBALL', 'SOCCER', 'BASEBALL', 'GOLF', 'TENNIS', 'HOCKEY', 'FIGHTS']) {
-  sports.forEach((sport) => {
-    fetchTeams(sport).catch((err) => console.warn(`${sport} teams prefetch error:`, err));
+export function prefetchTeams(
+  sports: SportType[] = ['BASKETBALL', 'FOOTBALL', 'BASEBALL', 'HOCKEY'],
+) {
+  sports.forEach((sport, i) => {
+    const delay = i * 400;
+    const run = () => fetchTeams(sport).catch((err) => console.warn(`${sport} teams prefetch error:`, err));
+    if (delay === 0) run();
+    else setTimeout(run, delay);
+  });
+}
+
+export function prefetchTeamsSecondary(
+  sports: SportType[] = ['SOCCER', 'GOLF', 'TENNIS', 'FIGHTS'],
+) {
+  sports.forEach((sport, i) => {
+    setTimeout(
+      () => fetchTeams(sport).catch((err) => console.warn(`${sport} teams prefetch error:`, err)),
+      3000 + i * 500,
+    );
   });
 }
 
@@ -314,6 +332,13 @@ export async function fetchPlayerDetails(
 export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> => {
   if (teamsCache[sport]) return teamsCache[sport];
 
+  const sessionKey = `teams:${sport}`;
+  const cached = sessionGet<SelectableTeam[]>(sessionKey, CACHE_PROFILES.static.staleMs);
+  if (cached?.length) {
+    teamsCache[sport] = cached;
+    return cached;
+  }
+
   const cdnKey = APP_SPORT_TO_CDN[sport];
   if (cdnKey) {
     const teams = await loadCdnTeamsForSport(sport);
@@ -329,6 +354,7 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       teamsCache[sport] = parsed;
+      sessionSet(sessionKey, parsed);
       return parsed;
     }
   }
@@ -345,6 +371,7 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
         logo: t.logo,
       })).sort((a, b) => a.name.localeCompare(b.name));
       teamsCache[sport] = parsed;
+      if (parsed.length) sessionSet(sessionKey, parsed);
       return parsed;
     } catch (err) {
       console.error(`${sport} teams error:`, err);
@@ -378,23 +405,35 @@ export function getFeaturedGame(sport: SportType, games: Game[]): Game | undefin
 
 export async function fetchStandings(sport: SportType): Promise<StandingsGroup[]> {
   if (!isEngineSport(sport)) return [];
+
+  const sessionKey = `standings:${sport}`;
+  const cached = sessionGet<StandingsGroup[]>(sessionKey, CACHE_PROFILES.season.staleMs);
+  if (cached?.length) return cached;
+
   try {
     const { data } = await getEngine(sport).getStandings();
+    if (data.length) sessionSet(sessionKey, data);
     return data;
   } catch (err) {
     console.error(`${sport} standings error:`, err);
-    return [];
+    return cached ?? [];
   }
 }
 
 export async function fetchTeamRoster(sport: SportType, teamId: string): Promise<Player[]> {
   if (!isEngineSport(sport)) return [];
+
+  const sessionKey = `roster:${sport}:${teamId}`;
+  const cached = sessionGet<Player[]>(sessionKey, CACHE_PROFILES.static.staleMs);
+  if (cached?.length) return cached;
+
   try {
     const { data } = await getEngine(sport).getTeamRoster(teamId);
+    if (data.length) sessionSet(sessionKey, data);
     return data;
   } catch (err) {
     console.error(`${sport} roster error:`, err);
-    return [];
+    return cached ?? [];
   }
 }
 
@@ -419,6 +458,8 @@ export async function searchPlayersForSport(sport: SportType, query: string): Pr
     return [];
   }
 }
+
+export { searchCatalog, type SearchResultItem, type SearchResultType } from './search';
 
 export async function fetchWnbaLeagueContext(): Promise<LeagueContext | null> {
   if (!isEngineSport('BASKETBALL')) return null;

@@ -60,14 +60,15 @@ function deriveThru(comp: any): string | undefined {
 
 export function parseGolfCompetitor(comp: any): LeaderboardEntry {
   const athlete = comp.athlete ?? {};
+  const athleteId = athlete.id ?? comp.id;
   const rounds = (comp.linescores ?? [])
     .filter((l: any) => l.period && l.period <= 4)
     .map((l: any) => l.displayValue ?? parseScore(l.value) ?? '—');
 
   const toPar = parseToPar(comp);
   return {
-    id: String(comp.id ?? athlete.id ?? athlete.displayName),
-    name: athlete.displayName ?? athlete.shortName ?? 'TBD',
+    id: String(athleteId ?? athlete.displayName ?? 'unknown'),
+    name: athlete.displayName ?? athlete.shortName ?? athlete.fullName ?? 'TBD',
     position: comp.order ?? 0,
     score: parseTotalStrokes(comp),
     toPar,

@@ -7,6 +7,7 @@ import { fetchJsonResilient } from '../core/resilientFetch';
 import type { Game, StatItem } from '../../types';
 import { parseTennisEvents } from '../../services/parsers/parseTennisEvents';
 import { dedupeGamesById } from '../core/mergeGames';
+import { espnCoreSearchAthletes } from './espnCoreSearch';
 import { resolveTennisAthleteAssets, isCountryFlagUrl } from '../../utils/fighterAssets';
 import type { Team } from '../../types';
 
@@ -137,7 +138,12 @@ export async function espnTennisSearchAthletes(query: string): Promise<any[]> {
           merged.push(item);
         }
       }
-      return merged;
+      if (merged.length) return merged;
+
+      return espnCoreSearchAthletes(query, [
+        { sport: 'tennis', league: 'atp', label: 'atp' },
+        { sport: 'tennis', league: 'wta', label: 'wta' },
+      ]);
     },
     ['search'],
   );

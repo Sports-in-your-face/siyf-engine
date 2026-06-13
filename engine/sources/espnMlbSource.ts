@@ -17,6 +17,9 @@ import type {
   Team,
 } from '../core/types';
 import { enrichMlbTeam, resolveMlbTeamLogo } from './teamRegistry';
+import { espnSearchAthletesWithFallback } from './espnCoreSearch';
+import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
+import { parseEspnRosterEntries } from './espnRosterUtils';
 
 const BASE = '/api/espn/apis/site/v2/sports/baseball/mlb';
 const COMMON = '/api/espn/apis/common/v3/sports/baseball/mlb';
@@ -95,14 +98,14 @@ export async function espnMlbStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data =
-    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-mlb-standings' })) ??
-    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-mlb-standings-alt' }));
-
+  const data = await fetchEspnStandingsPayload(
+    `${BASE}/standings`,
+    STANDINGS_ALT,
+    'espn-mlb-standings',
+  );
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = data.children ?? data.standings?.children ?? [];
-  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
+  const children = extractStandingsChildren(data);
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Division',
@@ -139,6 +142,8 @@ export async function espnMlbStandings(): Promise<StandingsGroup[]> {
 }
 
 export async function espnMlbAthlete(id: string): Promise<any | null> {
+  if (!id || !/^\d+$/.test(String(id))) return null;
+
   const key = cacheKey('espn-mlb', 'athlete', id);
   return cachedFetch(
     key,
@@ -159,17 +164,16 @@ export async function espnMlbAthlete(id: string): Promise<any | null> {
 
 export async function espnMlbSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-mlb', 'search', query.toLowerCase());
+  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async ({ bypassCache }) => {
-      const data = await fetchJsonResilient<any>(
-        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
-        undefined,
-        { label: 'espn-mlb-athlete-search', bypassCache },
-      );
-      return data?.items ?? data?.athletes ?? [];
-    },
+    async () =>
+      espnSearchAthletesWithFallback(
+        query,
+        { sport: 'baseball', league: 'mlb', label: 'mlb' },
+        `${COMMON}/athletes?search=${encoded}&limit=10`,
+      ),
     ['search'],
   );
   return result ?? [];
@@ -383,15 +387,5 @@ export function parseEspnMlbTeamsList(data: any) {
 }
 
 export function parseEspnMlbRoster(data: any) {
-  const athletes = data?.athletes ?? data?.team?.athletes ?? [];
-  return athletes.map((a: any) => {
-    const athlete = a.athlete ?? a;
-    return {
-      id: String(athlete.id),
-      name: athlete.displayName ?? athlete.fullName,
-      position: athlete.position?.abbreviation ?? athlete.position?.name ?? '—',
-      number: athlete.jersey,
-      headshot: athlete.headshot?.href ?? athlete.headshot,
-    };
-  });
+  return parseEspnRosterEntries(data);
 }

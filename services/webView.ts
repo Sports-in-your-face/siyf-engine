@@ -4,6 +4,7 @@ import type { SportType } from './api';
 import type { Game, Team } from '../types';
 import { displaySubtitle } from '../utils/gameDisplay';
 import { getUserTimezone } from '../utils/gameTime';
+import { extractGameOdds, isSpecialGameCard, specialGameLabel, gameMetaLine } from '../utils/gameMeta';
 
 export type WebGameStatus = 'pre' | 'live' | 'final';
 
@@ -23,6 +24,13 @@ export interface WebGameLeader {
   value: string;
   team: string;
   teamLogo: string;
+  headshot?: string;
+}
+
+export interface WebGameOdds {
+  spread?: string;
+  total?: string;
+  book?: string;
 }
 
 export interface WebGameView {
@@ -41,6 +49,16 @@ export interface WebGameView {
   sport?: string;
   sportIcon?: string;
   link?: string;
+  /** Engine-sourced odds (free tier, from Action Network context). */
+  odds?: WebGameOdds | null;
+  /** True when the game is classified as a marquee/special event. */
+  isSpecial?: boolean;
+  /** Short label for the special event (e.g. "Super Bowl", "Finals Game 7"). */
+  specialLabel?: string;
+  /** Venue · broadcast · attendance formatted line. */
+  metaLine?: string;
+  /** Sub-league identifier for filtering/badges (WNBA, NCAAm, UCL, Boxing, etc.). */
+  leagueTag?: string;
 }
 
 export interface WebStandingsRow {
@@ -66,6 +84,42 @@ export interface WebDivisionTeam {
 export interface WebDivision {
   name: string;
   teams: WebDivisionTeam[];
+}
+
+const SOCCER_LEAGUE_LABELS: Record<string, string> = {
+  'eng.1': 'Premier League',
+  'esp.1': 'La Liga',
+  'ger.1': 'Bundesliga',
+  'fra.1': 'Ligue 1',
+  'ita.1': 'Serie A',
+  'ned.1': 'Eredivisie',
+  'por.1': 'Primeira Liga',
+  'eng.2': 'Championship',
+  'usa.1': 'MLS',
+  'mex.1': 'Liga MX',
+  'bra.1': 'Brasileirão',
+  'uefa.champions': 'UCL',
+  'uefa.europa': 'Europa',
+  'uefa.europa.conf': 'UECL',
+  'eng.fa': 'FA Cup',
+  'eng.league_cup': 'League Cup',
+};
+
+const FIGHTS_LEAGUE_LABELS: Record<string, string> = {
+  ufc: 'UFC',
+  boxing: 'Boxing',
+  bellator: 'Bellator',
+  pfl: 'PFL',
+};
+
+function deriveLeagueTag(game: Game, sport: SportType): string | undefined {
+  if (sport === 'SOCCER' && game.leagueSlug) {
+    return SOCCER_LEAGUE_LABELS[game.leagueSlug] ?? game.leagueSlug.toUpperCase();
+  }
+  if (sport === 'FIGHTS' && game.leagueSlug) {
+    return FIGHTS_LEAGUE_LABELS[game.leagueSlug.toLowerCase()] ?? game.leagueSlug.toUpperCase();
+  }
+  return undefined;
 }
 
 const SPORT_UI: Record<SportType, { label: string; icon: string; route: string }> = {
@@ -161,6 +215,13 @@ function buildQuarters(game: Game, sport: SportType): WebGameView['quarters'] | 
   };
 }
 
+function resolveTeamLogo(game: Game, teamAbbr: string): string {
+  const upper = (teamAbbr || '').toUpperCase();
+  if ((game.home.abbr || '').toUpperCase() === upper) return game.home.logo || '';
+  if ((game.away.abbr || '').toUpperCase() === upper) return game.away.logo || '';
+  return game.home.logo || game.away.logo || '';
+}
+
 function buildLeaders(game: Game): WebGameLeader[] | undefined {
   if (!game.topPerformers?.length) return undefined;
   return game.topPerformers.slice(0, 4).map((p) => ({
@@ -168,7 +229,8 @@ function buildLeaders(game: Game): WebGameLeader[] | undefined {
     stat: p.stats[0]?.label ?? 'Stats',
     value: String(p.stats[0]?.value ?? '-'),
     team: p.team,
-    teamLogo: '',
+    teamLogo: resolveTeamLogo(game, p.team),
+    headshot: p.headshot || p.headshotUrl || undefined,
   }));
 }
 
@@ -210,6 +272,9 @@ export function adaptGameForWeb(
   opts: { includeSportMeta?: boolean } = {},
 ): WebGameView {
   const meta = opts.includeSportMeta ? SPORT_UI[sport] : undefined;
+  const odds = extractGameOdds(game);
+  const isSpecial = isSpecialGameCard(game);
+  const specialLbl = specialGameLabel(game);
   return {
     id: game.id,
     status: mapStatus(game.statusState),
@@ -226,6 +291,11 @@ export function adaptGameForWeb(
     sport: meta?.label,
     sportIcon: meta?.icon,
     link: meta?.route,
+    odds: odds ?? undefined,
+    isSpecial: isSpecial || undefined,
+    specialLabel: specialLbl,
+    metaLine: gameMetaLine(game),
+    leagueTag: deriveLeagueTag(game, sport),
   };
 }
 
@@ -452,15 +522,17 @@ export function adaptHockeyDivisionStandings(groups: StandingsGroup[]): WebHocke
   return groups.map((group) => ({
     name: group.name,
     teams: group.rows.map((row) => {
-      const gp = row.wins + row.losses;
+      const otl = row.otl ?? 0;
+      const gp = row.wins + row.losses + otl;
+      const pts = row.points ?? (row.wins * 2 + otl);
       return {
         abbr: row.team.abbr,
         logo: row.team.logo,
         gp,
         w: row.wins,
         l: row.losses,
-        otl: 0,
-        pts: row.wins * 2 + row.losses,
+        otl,
+        pts,
       };
     }),
   }));

@@ -8,6 +8,7 @@ import type { Game, StatItem } from '../../types';
 import { parseFightEvents } from '../../services/parsers/parseFightEvents';
 import { resolveFightOrgSlug, tagUfcGames } from '../../services/parsers/parseFightContext';
 import { resolveMmaFighterAssets } from '../../utils/fighterAssets';
+import { espnSearchAthletesWithFallback } from './espnCoreSearch';
 
 const MMA_BASE = '/api/espn/apis/site/v2/sports/mma';
 const MMA_COMMON = '/api/espn/apis/common/v3/sports/mma/athletes';
@@ -67,17 +68,19 @@ export async function espnMmaAthlete(playerId: string): Promise<any | null> {
 
 export async function espnMmaSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-mma', 'search', query);
+  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch(
     key,
     profileForResource('search'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${MMA_COMMON}?search=${encodeURIComponent(query)}`, undefined, {
-        label: `espn-mma-search-${query}`,
-        bypassCache,
-      }),
+    async () =>
+      espnSearchAthletesWithFallback(
+        query,
+        { sport: 'mma', label: 'mma' },
+        `${MMA_COMMON}?search=${encoded}&limit=10`,
+      ),
     ['search'],
   );
-  return result?.items ?? result?.athletes ?? [];
+  return result ?? [];
 }
 
 export function parseEspnMmaGameMeta(summary: any) {

@@ -56,6 +56,10 @@ export interface StandingsRow {
   winPct: string;
   streak?: string;
   gamesBack?: string;
+  /** Overtime/shootout losses (NHL) */
+  otl?: number;
+  /** League points (NHL: 2*W + OTL; other sports: unused) */
+  points?: number;
 }
 
 export interface StandingsGroup {

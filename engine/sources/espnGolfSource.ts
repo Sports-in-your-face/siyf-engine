@@ -7,6 +7,7 @@ import { fetchJsonResilient } from '../core/resilientFetch';
 import type { Game, StatItem } from '../../types';
 import { parseGolfEvents, parseGolfCompetitor } from '../../services/parsers/parseGolfEvents';
 import { dedupeGamesById } from '../core/mergeGames';
+import { espnCoreSearchAthletes } from './espnCoreSearch';
 
 const PGA_BASE = '/api/espn/apis/site/v2/sports/golf/pga';
 const LPGA_BASE = '/api/espn/apis/site/v2/sports/golf/lpga';
@@ -70,6 +71,8 @@ export function parseGolfScoreboardEvents(raw: unknown): ReturnType<typeof parse
 }
 
 export async function espnGolfAthlete(playerId: string, tour?: 'PGA' | 'LPGA'): Promise<any | null> {
+  if (!playerId || !/^\d+$/.test(String(playerId))) return null;
+
   const key = cacheKey('espn-golf', 'athlete', tour ?? 'auto', playerId);
   return cachedFetch(
     key,
@@ -118,7 +121,12 @@ export async function espnGolfSearchAthletes(query: string): Promise<any[]> {
           merged.push(item);
         }
       }
-      return merged;
+      if (merged.length) return merged;
+
+      return espnCoreSearchAthletes(query, [
+        { sport: 'golf', league: 'pga', label: 'pga' },
+        { sport: 'golf', league: 'lpga', label: 'lpga' },
+      ]);
     },
     ['search'],
   );

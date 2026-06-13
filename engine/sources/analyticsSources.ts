@@ -28,13 +28,21 @@ function parseTorvikRecord(record?: string, wins?: number, losses?: number): { w
   return { wins: w, losses: l, winPct: total ? (w / total).toFixed(3).slice(1) : '.000' };
 }
 
+function normalizeTorvikTeams(raw: TorvikTeam[] | Record<string, TorvikTeam>): TorvikTeam[] {
+  const list = Array.isArray(raw) ? raw : Object.values(raw);
+  return list.filter(
+    (t): t is TorvikTeam =>
+      Boolean(t && typeof t === 'object' && typeof t.team === 'string' && t.team.trim()),
+  );
+}
+
 function mapTorvikToStandings(teams: TorvikTeam[]): StandingsGroup[] {
   const byConf = new Map<string, StandingsRow[]>();
   const sorted = [...teams].sort((a, b) => (b.barthag ?? 0) - (a.barthag ?? 0));
 
   sorted.forEach((t, idx) => {
     const conf = t.conf ?? 'Analytics';
-    const abbr = t.team.slice(0, 4).toUpperCase();
+    const abbr = t.team.trim().slice(0, 4).toUpperCase();
     const reg = enrichTeam(abbr, { name: t.team });
     const rec = parseTorvikRecord(t.record, t.wins, t.losses);
     const row: StandingsRow = {
@@ -73,7 +81,7 @@ export async function fetchBartTorvikStandings(): Promise<StandingsGroup[]> {
       { label: 'barttorvik', retries: 1, timeout: 8_000 },
     );
     if (!raw) continue;
-    const teams = Array.isArray(raw) ? raw : Object.values(raw);
+    const teams = normalizeTorvikTeams(raw);
     if (!teams.length) continue;
     const groups = mapTorvikToStandings(teams);
     if (groups.length) {

@@ -25,6 +25,7 @@
     "./adjuster": "./engine/adjuster/index.ts",
     "./adjuster/*": "./engine/adjuster/*",
     "./services/api": "./services/api.ts",
+    "./services/search": "./services/search.ts",
     "./services/webView": "./services/webView.ts",
     "./services/scoreboardPoller": "./services/scoreboardPoller.ts",
     "./services/parsers/*": "./services/parsers/*",

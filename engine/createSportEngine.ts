@@ -577,7 +577,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     }
 
     if (config.afterPlayerDetails) {
-      const result = await config.afterPlayerDetails(player, detail, sources);
+      const result = await config.afterPlayerDetails(espnPlayer, detail, sources);
       detail = result.detail;
       sources.splice(0, sources.length, ...result.sources);
     }
@@ -718,7 +718,8 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     const enriched = caps.pipeline.teamLogoEnrichment
       ? games.map(enrichGameTeams)
       : games;
-    return { data: enriched, sources: ['espn'] };
+    const timed = finalizeScoreboardGames(enriched);
+    return { data: timed, sources: ['espn'] };
   }
 
   const engine: SportEngine = {
