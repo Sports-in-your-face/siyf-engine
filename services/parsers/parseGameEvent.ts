@@ -208,7 +208,7 @@ function parseTeamCompetitor(comp: EspnCompetitor, sport: SportType, leagueSport
   return enrichParsedTeamFromCdn(sport, parsed);
 }
 
-function parseAthleteCompetitor(comp: EspnCompetitor, sport?: SportType): Team {
+function parseAthleteCompetitor(comp: EspnCompetitor, sport?: SportType, tourHint?: 'ATP' | 'WTA'): Team {
   const athlete = comp.athlete ?? {};
   const record = comp.records?.[0]?.summary;
   const base = {
@@ -226,7 +226,8 @@ function parseAthleteCompetitor(comp: EspnCompetitor, sport?: SportType): Team {
       return { ...base, logo: headshot, logoFallback: flag, flag };
     }
     if (layout === 'matchup') {
-      const { headshot, flag } = resolveTennisAthleteAssets(comp);
+      const tour = tourHint ?? (sport === 'TENNIS' ? 'ATP' : undefined);
+      const { headshot, flag } = resolveTennisAthleteAssets(comp, tour);
       const name = base.name;
       return {
         ...base,
@@ -376,13 +377,18 @@ function parseMatchupEvent(event: EspnGameEvent, sport: SportType): Game | null 
   );
   if (sorted.length < 2) return null;
 
+  const leagueAbbr = coerceDisplayString(
+    resolveEspnEventField(event, 'leagueAbbr') ?? competition?.league?.abbreviation,
+  );
+  const tourHint: 'ATP' | 'WTA' = /WTA/i.test(leagueAbbr ?? '') ? 'WTA' : 'ATP';
+
   return buildGame(
     String(event.id),
     sport,
     event,
     competition,
-    parseAthleteCompetitor(sorted[0], sport),
-    parseAthleteCompetitor(sorted[1], sport),
+    parseAthleteCompetitor(sorted[0], sport, tourHint),
+    parseAthleteCompetitor(sorted[1], sport, tourHint),
   );
 }
 

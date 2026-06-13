@@ -1,13 +1,20 @@
 const ESPN_MMA_HEADSHOT_BASE = 'https://a.espncdn.com/i/headshots/mma/players/full';
 const ESPN_TENNIS_HEADSHOT_BASE = 'https://a.espncdn.com/i/headshots/tennis/players/full';
 
+/** ESPN headshot CDN only works with plain numeric athlete IDs — not composite or negative ids. */
+function isValidEspnHeadshotId(id: unknown): boolean {
+  if (id == null || id === '') return false;
+  const s = String(id).trim();
+  return /^\d+$/.test(s) && s !== '0';
+}
+
 export function buildMmaHeadshotUrl(athleteId?: string | number | null): string | undefined {
-  if (athleteId == null || athleteId === '') return undefined;
+  if (!isValidEspnHeadshotId(athleteId)) return undefined;
   return `${ESPN_MMA_HEADSHOT_BASE}/${athleteId}.png`;
 }
 
 export function buildTennisHeadshotUrl(athleteId?: string | number | null): string | undefined {
-  if (athleteId == null || athleteId === '') return undefined;
+  if (!isValidEspnHeadshotId(athleteId)) return undefined;
   return `${ESPN_TENNIS_HEADSHOT_BASE}/${athleteId}.png`;
 }
 

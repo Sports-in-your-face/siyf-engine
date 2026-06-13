@@ -117,7 +117,10 @@ export function parseGolfEvents(events: any[], tour = 'PGA'): Game[] {
   for (const event of events) {
     batch.rawCount += 1;
     try {
-      const competition = event.competitions?.[0];
+      const competition = event.competitions?.[0]
+        ?? (Array.isArray(event.competitors) && event.competitors.length
+          ? { competitors: event.competitors, status: event.status }
+          : null);
       if (!competition?.competitors?.length) {
         batch.skipped += 1;
         continue;

@@ -320,7 +320,8 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
     if (teams.length) {
       const parsed = teams
         .map((t) => ({
-          id: t.id,
+          id: String(t.espnId ?? t.id ?? t.abbr),
+          espnId: t.espnId ? String(t.espnId) : undefined,
           sport,
           name: t.name,
           abbr: t.abbr,
@@ -336,7 +337,8 @@ export const fetchTeams = async (sport: SportType): Promise<SelectableTeam[]> =>
     try {
       const { data } = await getEngine(sport as EngineSport).getTeams();
       const parsed: SelectableTeam[] = data.map((t: ResolvedTeam) => ({
-        id: t.id,
+        id: String(t.espnId ?? t.id ?? t.abbr),
+        espnId: t.espnId ? String(t.espnId) : undefined,
         sport,
         name: t.name,
         abbr: t.abbr,
