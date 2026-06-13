@@ -14,17 +14,39 @@ export function siyfApiUrl(path: string): string {
 }
 
 /**
+ * Appwrite JWT for the current user session.
+ * Set by useAuth after login; cleared on logout.
+ * Attached to paid-API proxy calls so the server can verify premium membership.
+ */
+let _siyfAuthJwt: string | null = null;
+
+export function setSiyfAuthJwt(jwt: string | null): void {
+  _siyfAuthJwt = jwt;
+}
+
+export function getSiyfAuthJwt(): string | null {
+  return _siyfAuthJwt;
+}
+
+/** Whether the engine currently has a premium-user JWT loaded. */
+export function isSiyfPremium(): boolean {
+  return Boolean(_siyfAuthJwt);
+}
+
+/**
  * Resolve worker-proxied paths for the Chrome extension.
  * Every /api/* call goes to SIYF-API (ESPN, odds, BDL, RSS) so all users share edge cache.
  * Paid routes (BDL, SPORTS, ODDS, SGO) are only hit from engine last-resort fallbacks — see paidApiPolicy.ts.
  */
-export function resolveProxyUrl(url: string): string {
+export function resolveProxyUrl(url: string | undefined | null): string {
+  if (!url) return '';
   if (!url.startsWith('/api/')) return url;
   return siyfApiUrl(url);
 }
 
 /** Route browser-blocked external URLs through SIYF-API. */
-export function externalFetchUrl(url: string): string {
+export function externalFetchUrl(url: string | undefined | null): string {
+  if (!url) return '';
   if (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')) return url;
   try {
     const parsed = new URL(url);

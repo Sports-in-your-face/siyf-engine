@@ -544,6 +544,30 @@ export function scoringPlaysToEventLog(plays: Game['plays']): { label: string; v
     .map((p) => ({ label: `${p.period} ${p.clock}`.trim(), value: p.text }));
 }
 
+/** ESPN athlete endpoints expect numeric IDs — not Wikidata Q-codes or other external IDs. */
+export function isEspnAthleteId(id: string): boolean {
+  return /^\d+$/.test(id);
+}
+
+export function isWikidataPlayerId(id: string): boolean {
+  return id.startsWith('wikidata:') || /^Q\d+$/i.test(id);
+}
+
+/** Best-effort name match when resolving a Wikidata hit to an ESPN athlete. */
+export function pickEspnSearchMatch(candidates: Player[], name: string): Player | undefined {
+  if (!candidates.length) return undefined;
+  const target = name.trim().toLowerCase();
+  return (
+    candidates.find((p) => p.name.trim().toLowerCase() === target)
+    ?? candidates.find((p) => {
+      const parts = target.split(/\s+/);
+      const pn = p.name.trim().toLowerCase();
+      return parts.every((part) => pn.includes(part));
+    })
+    ?? candidates[0]
+  );
+}
+
 export function parseEspnSearchResults(espnResults: unknown): Player[] {
   const players: Player[] = [];
   const seen = new Set<string>();

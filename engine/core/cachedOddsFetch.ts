@@ -1,3 +1,4 @@
+import { getSiyfAuthJwt } from '../../config/siyfApi';
 import { cachedFetch, cacheKey } from './cache';
 import { profileForResource } from './cacheTiers';
 import { fetchJsonResilient } from './resilientFetch';
@@ -14,6 +15,8 @@ export async function fetchCachedPaidOdds<T>(
   label: string,
   extraTags: string[] = [],
 ): Promise<T[]> {
+  if (!getSiyfAuthJwt()) return [];
+
   const key = cacheKey('odds', cacheSlug);
   const raw = await cachedFetch(
     key,

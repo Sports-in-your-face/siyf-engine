@@ -145,11 +145,27 @@ export async function espnNflAthlete(id: string): Promise<any | null> {
     profileForResource('athlete'),
     async ({ bypassCache }) => {
       const opts = { bypassCache };
+      const fetchStats = () =>
+        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, {
+          label: 'espn-nfl-athlete-stats',
+          ...opts,
+        }).catch(() => null);
+
       const [bio, overview, stats] = await Promise.all([
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}`, undefined, { label: 'espn-nfl-athlete-bio', ...opts }),
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}/overview`, undefined, { label: 'espn-nfl-athlete-overview', ...opts }),
-        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, { label: 'espn-nfl-athlete-stats', ...opts }),
+        fetchStats(),
       ]);
+
+      if (!bio && !overview) {
+        const siteV2 = await fetchJsonResilient<any>(
+          `${BASE}/athletes/${id}`,
+          undefined,
+          { label: 'espn-nfl-athlete-site-v2', ...opts },
+        );
+        if (siteV2) return { bio: siteV2, overview: siteV2, stats: stats ?? null };
+      }
+
       if (!bio && !overview && !stats) return null;
       return { bio, overview, stats };
     },

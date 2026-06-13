@@ -1,4 +1,4 @@
-import { resolveProxyUrl } from '../../config/siyfApi';
+import { resolveProxyUrl, getSiyfAuthJwt } from '../../config/siyfApi';
 import { createEngineLog } from './engineUtils';
 import { canUsePaidApi, recordPaidApiGatePass, trackPaidApiHourly } from '../adjuster/paidKillSwitch';
 import { detectPaidApi, trackPaidApiUse } from './paidApiTelemetry';
@@ -88,10 +88,28 @@ export async function fetchJsonResilient<T>(
     ...opts,
   };
 
+  if (!url) {
+    log('warn', label, 'empty url — skipping fetch');
+    return null;
+  }
+
   const resolvedUrl = resolveProxyUrl(url);
+  if (!resolvedUrl) {
+    log('warn', label, 'empty resolved url — skipping fetch');
+    return null;
+  }
   const hostKey = backoffKey(resolvedUrl);
   const extraHeaders: Record<string, string> = {};
   if (bypassCache) extraHeaders['X-SIYF-Bypass-Cache'] = '1';
+
+  // Attach premium JWT for paid proxy routes so server can verify membership.
+  const jwt = getSiyfAuthJwt();
+  if (jwt) {
+    const lowerUrl = resolvedUrl.toLowerCase();
+    if (lowerUrl.includes('/api/odds') || lowerUrl.includes('/api/bdl') || lowerUrl.includes('/api/sgo')) {
+      extraHeaders['X-Appwrite-JWT'] = jwt;
+    }
+  }
 
   const backoffUntil = rateLimitedUntil.get(hostKey);
   if (!bypassCache && backoffUntil && Date.now() < backoffUntil) {
@@ -106,6 +124,13 @@ export async function fetchJsonResilient<T>(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       if (attempt === 0 && paidApi) {
+        if (
+          (paidApi === 'odds' || paidApi === 'bdl' || paidApi === 'sgo') &&
+          !getSiyfAuthJwt()
+        ) {
+          log('warn', label, 'paid API requires auth — skipping');
+          return null;
+        }
         const gate = canUsePaidApi(paidApi);
         if (!gate.allowed) {
           log('warn', label, `paid API kill switch: ${gate.reason}`);
@@ -130,7 +155,7 @@ export async function fetchJsonResilient<T>(
           return null;
         }
         // Missing resources won't appear on retry — avoid hammering proxies and console noise.
-        if (res.status === 404 || res.status === 410) {
+        if (res.status === 400 || res.status === 404 || res.status === 410) {
           return null;
         }
         if (TRANSIENT_HTTP_STATUSES.has(res.status)) {

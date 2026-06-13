@@ -54,11 +54,11 @@ async function loadRegistry(key: TeamRegistryKey): Promise<void> {
     fetchCdnJson<Partial<Record<TeamRegistryKey, AliasMap>>>('meta/team-aliases.json'),
   ]);
 
-  const teams = normalizeTeamLogos(key, rawTeams);
+  const teams = normalizeTeamLogos(key, rawTeams ?? []);
 
   registries.set(key, {
     teams,
-    aliases: buildAliasMap(teams, aliasBundle[key] ?? {}),
+    aliases: buildAliasMap(teams, (aliasBundle ?? {})[key] ?? {}),
   });
 }
 
@@ -87,7 +87,7 @@ async function loadSoccerLeagueLabels(): Promise<void> {
   if (!soccerLabelsPromise) {
     soccerLabelsPromise = fetchCdnJson<Record<string, string>>('meta/soccer-leagues.json')
       .then((labels) => {
-        soccerLeagueLabels = labels;
+        soccerLeagueLabels = labels ?? {};
       })
       .catch(() => undefined);
   }
@@ -221,7 +221,11 @@ export function resolveSoccerTeam(query: string): ResolvedTeam | undefined {
 }
 
 export function resolveSoccerTeamLogo(abbr: string, existing?: string): string {
-  return resolveTeamLogoFor(soccerRegistryKey(), abbr, existing);
+  const resolved = resolveTeamLogoFor(soccerRegistryKey(), abbr, existing);
+  if (resolved) return resolved;
+  if (existing && isEspnAssetUrl(existing)) return existing;
+  if (existing?.startsWith('http://') || existing?.startsWith('https://')) return existing;
+  return '';
 }
 
 export function enrichSoccerTeam(

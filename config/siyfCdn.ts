@@ -32,11 +32,12 @@ export function cdnFavicon(name: string): string {
 
 const jsonCache = new Map<string, unknown>();
 
-export async function fetchCdnJson<T>(path: string): Promise<T> {
+export async function fetchCdnJson<T>(path: string): Promise<T | null> {
   const url = cdnUrl(path);
   if (jsonCache.has(url)) return jsonCache.get(url) as T;
 
   const res = await fetch(url);
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`CDN fetch failed (${res.status}): ${url}`);
 
   const data = (await res.json()) as T;

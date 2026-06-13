@@ -89,7 +89,11 @@ export function parseBaseballGameContext(
   _homeAbbr: string,
 ): GameContext | undefined {
   const seasonType = event?.season?.type ?? competition?.season?.type;
-  const notes = competition?.notes ?? event?.competitions?.[0]?.notes ?? [];
+  const notes = Array.isArray(competition?.notes)
+    ? competition.notes
+    : Array.isArray(event?.competitions?.[0]?.notes)
+      ? event.competitions[0].notes
+      : [];
   const headline = notes.find((n: any) => n.type === 'event' || n.headline)?.headline
     ?? notes.find((n: any) => n.headline)?.headline;
 
@@ -102,9 +106,10 @@ export function parseBaseballGameContext(
 
   const round = detectRound(headline, typeAbbr, typeText);
   const statusState = competition?.status?.type?.state ?? event?.status?.type?.state;
+  const broadcasts = competition?.broadcasts;
   const broadcast = competition?.broadcast
-    ?? competition?.broadcasts?.find((b: any) => b.market === 'national')?.names?.join(', ')
-    ?? competition?.broadcasts?.[0]?.names?.join(', ');
+    ?? (Array.isArray(broadcasts) ? broadcasts.find((b: any) => b.market === 'national')?.names?.join(', ') : undefined)
+    ?? (Array.isArray(broadcasts) ? broadcasts[0]?.names?.join(', ') : undefined);
 
   const badge = buildBadge(phase, round);
   const priority = computePriority(phase, round, statusState);

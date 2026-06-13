@@ -40,7 +40,7 @@ export async function preloadSpecialEventCatalog(): Promise<void> {
   if (loadPromise) return loadPromise;
   loadPromise = fetchCdnJson<SpecialEventsCatalog>('meta/special-events.json')
     .then((data) => {
-      catalog = data.events ?? [];
+      catalog = data?.events ?? [];
     })
     .catch(() => {
       catalog = [];

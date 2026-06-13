@@ -1,6 +1,6 @@
 import type { Game } from '../types';
 import { gamesSnapshotEqual } from '../utils/gameSnapshot';
-import { fetchGames, type SportType } from './api';
+import { fetchGames, SPORT_ENDPOINTS, type SportType } from './api';
 
 type ScoreboardListener = (games: Game[]) => void;
 
@@ -51,6 +51,8 @@ function notifyListeners(sport: SportType, games: Game[]): void {
 
 /** Fetch one sport's scoreboard; dedupes concurrent callers. */
 export function fetchScoreboardOnce(sport: SportType): Promise<Game[]> {
+  if (!(sport in SPORT_ENDPOINTS)) return Promise.resolve([]);
+
   const state = getState(sport);
   if (state.inflight) return state.inflight;
 

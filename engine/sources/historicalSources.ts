@@ -34,7 +34,9 @@ const parseEspnGolfHistory = createParseSeasonHistory(GOLF_LABEL_INDEX, log);
 const parseEspnFightsHistory = createParseSeasonHistory(FIGHTS_LABEL_INDEX, log);
 
 export function sportsReferenceSlug(playerId: string, playerName: string, nfl = false): string | null {
-  if (/^[a-z]{5}\d{2}[a-z]?$/i.test(playerId)) {
+  if (/^Q\d+$/i.test(playerId) || playerId.startsWith('wikidata:')) {
+    // External IDs — derive slug from display name only.
+  } else if (/^[a-z]{5}\d{2}[a-z]?$/i.test(playerId)) {
     return nfl
       ? playerId.charAt(0).toUpperCase() + playerId.slice(1)
       : playerId.toLowerCase();

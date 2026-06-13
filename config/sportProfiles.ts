@@ -461,7 +461,10 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
 };
 
 export function getSportProfile(sport: SportType): SportProfile {
-  return SPORT_PROFILES[sport];
+  const profile = SPORT_PROFILES[sport];
+  if (profile) return profile;
+  console.warn(`[sportProfiles] unknown sport "${sport}" — falling back to SOCCER`);
+  return SPORT_PROFILES.SOCCER ?? Object.values(SPORT_PROFILES)[0];
 }
 
 export function getBookmarkableSports(sports: SportType[]): SportType[] {

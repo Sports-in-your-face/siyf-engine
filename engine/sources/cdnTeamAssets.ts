@@ -1,4 +1,4 @@
-import { APP_SPORT_TO_CDN, type CdnTeamSport } from '../../config/siyfCdn';
+import { APP_SPORT_TO_CDN, soccerCdnTeamKey, type CdnTeamSport } from '../../config/siyfCdn';
 import { shouldUseNbaTeamCdn } from '../../utils/coerce';
 import type { Team } from '../../types';
 import type { SportType } from '../../services/api';
@@ -25,6 +25,7 @@ const REGISTRY_GETTERS: Record<CdnTeamSport, () => ResolvedTeam[]> = {
   nba: getAllTeams,
   nfl: getAllNflTeams,
   epl: getAllSoccerTeams,
+  mls: getAllSoccerTeams,
   mlb: getAllMlbTeams,
   nhl: getAllNhlTeams,
 };
@@ -33,6 +34,7 @@ const LOGO_RESOLVERS: Record<CdnTeamSport, (abbr: string, existing?: string) => 
   nba: resolveTeamLogo,
   nfl: resolveNflTeamLogo,
   epl: resolveSoccerTeamLogo,
+  mls: resolveSoccerTeamLogo,
   mlb: resolveMlbTeamLogo,
   nhl: resolveNhlTeamLogo,
 };
@@ -41,6 +43,7 @@ const TEAM_ENRICHERS: Record<CdnTeamSport, (abbr: string, partial: Partial<Resol
   nba: enrichTeam,
   nfl: enrichNflTeam,
   epl: enrichSoccerTeam,
+  mls: enrichSoccerTeam,
   mlb: enrichMlbTeam,
   nhl: (abbr, partial) => ({
     id: partial.id ?? abbr,
@@ -54,6 +57,7 @@ const TEAM_ENRICHERS: Record<CdnTeamSport, (abbr: string, partial: Partial<Resol
 };
 
 export function cdnKeyForSport(sport: string): CdnTeamSport | undefined {
+  if (sport === 'SOCCER') return soccerCdnTeamKey();
   return APP_SPORT_TO_CDN[sport];
 }
 
@@ -84,12 +88,14 @@ export function enrichParsedTeamFromCdn(
 ): Team {
   const key = sport ? cdnKeyForSport(sport) : undefined;
   if (!key) return team;
+  const enrich = TEAM_ENRICHERS[key];
+  if (!enrich) return team;
   if (sport === 'BASKETBALL' && gameSport && !shouldUseNbaTeamCdn({ sport: gameSport })) {
     return team;
   }
 
   const originalLogo = team.logo;
-  const enriched = TEAM_ENRICHERS[key](team.abbr, {
+  const enriched = enrich(team.abbr, {
     name: team.name,
     logo: team.logo,
     color: team.color,

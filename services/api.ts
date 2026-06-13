@@ -49,7 +49,9 @@ export async function fetchGames(sport: SportType): Promise<Game[]> {
   }
 
   try {
-    const url = resolveProxyUrl(SPORT_ENDPOINTS[sport]);
+    const endpoint = SPORT_ENDPOINTS[sport];
+    if (!endpoint) return [];
+    const url = resolveProxyUrl(endpoint);
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch');
     const data = await res.json();

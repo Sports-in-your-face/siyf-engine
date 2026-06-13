@@ -12,7 +12,9 @@ import {
   createEngineLog,
   createPlayerFallback,
   createSafeFetch,
+  isEspnAthleteId,
   parseEspnSearchResults,
+  pickEspnSearchMatch,
   prefetchLiveDetails,
   safeRefreshTimings,
   safeTryAsync,
@@ -496,18 +498,39 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     const sources: DataSource[] = [];
     let detail = createPlayerFallback(player, config.sport);
 
-    const res = await safeFetch('getPlayerDetails.espn', () => config.espn.athlete(player.id));
-    if (res.success && res.data) {
-      const parsed = safeTrySync(
-        log,
-        'getPlayerDetails',
-        'ESPN player parse',
-        () => config.buildPlayerDetails(player, res.data),
-        null,
+    let espnPlayer = player;
+    if (!isEspnAthleteId(player.id)) {
+      const searchRes = await safeFetch('getPlayerDetails.resolveEspnId', () =>
+        config.espn.searchAthletes(player.name),
       );
-      if (parsed) {
-        detail = parsed;
-        sources.push('espn');
+      if (searchRes.success && searchRes.data) {
+        const match = pickEspnSearchMatch(parseEspnSearchResults(searchRes.data), player.name);
+        if (match) {
+          espnPlayer = {
+            ...player,
+            id: match.id,
+            team: match.team !== '—' ? match.team : player.team,
+            position: match.position !== '—' ? match.position : player.position,
+            headshot: match.headshot ?? player.headshot,
+          };
+        }
+      }
+    }
+
+    if (isEspnAthleteId(espnPlayer.id)) {
+      const res = await safeFetch('getPlayerDetails.espn', () => config.espn.athlete(espnPlayer.id));
+      if (res.success && res.data) {
+        const parsed = safeTrySync(
+          log,
+          'getPlayerDetails',
+          'ESPN player parse',
+          () => config.buildPlayerDetails(espnPlayer, res.data),
+          null,
+        );
+        if (parsed) {
+          detail = parsed;
+          sources.push('espn');
+        }
       }
     }
 
@@ -579,9 +602,12 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         [],
       );
       const seen = new Set(players.map((p) => p.id));
+      const seenNames = new Set(players.map((p) => p.name.trim().toLowerCase()));
       for (const p of wikiPlayers) {
-        if (seen.has(p.id)) continue;
+        const nameKey = p.name.trim().toLowerCase();
+        if (seen.has(p.id) || seenNames.has(nameKey)) continue;
         seen.add(p.id);
+        seenNames.add(nameKey);
         players.push(p);
       }
       if (wikiPlayers.length) resultSources.push('wikidata');

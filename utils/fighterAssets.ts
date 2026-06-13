@@ -23,6 +23,7 @@ export function isPlaceholderCompetitor(competitor: { name?: string; abbr?: stri
 export interface IndividualAthleteAssets {
   headshot?: string;
   flag?: string;
+  logoFallback?: string;
 }
 
 type AthleteComp = {
@@ -44,7 +45,7 @@ export function resolveMmaFighterAssets(comp: AthleteComp): IndividualAthleteAss
   const athleteId = comp.id ?? athlete.id;
   const flag = athlete.flag?.href;
   const headshot = headshotFromAthlete(athlete) ?? buildMmaHeadshotUrl(athleteId);
-  return { headshot, flag };
+  return { headshot: headshot ?? flag, flag, logoFallback: !headshot ? flag : undefined };
 }
 
 export function resolveTennisAthleteAssets(
@@ -57,7 +58,7 @@ export function resolveTennisAthleteAssets(
   const headshotFromApi = headshotFromAthlete(athlete);
   // WTA ids differ from ESPN — headshots are resolved via wtaTennisSource enrichment.
   const headshot = headshotFromApi ?? (tour === 'ATP' ? buildTennisHeadshotUrl(athleteId) : undefined);
-  return { headshot, flag };
+  return { headshot: headshot ?? flag, flag, logoFallback: !headshot ? flag : undefined };
 }
 
 /** Normalize stored team fields into separate headshot + flag for display. */

@@ -146,11 +146,27 @@ export async function espnAthlete(id: string): Promise<any | null> {
     profileForResource('athlete'),
     async ({ bypassCache }) => {
       const opts = { bypassCache };
+      const fetchStats = () =>
+        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, {
+          label: 'espn-athlete-stats',
+          ...opts,
+        }).catch(() => null);
+
       const [bio, overview, stats] = await Promise.all([
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}`, undefined, { label: 'espn-athlete-bio', ...opts }),
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}/overview`, undefined, { label: 'espn-athlete-overview', ...opts }),
-        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, { label: 'espn-athlete-stats', ...opts }),
+        fetchStats(),
       ]);
+
+      if (!bio && !overview) {
+        const siteV2 = await fetchJsonResilient<any>(
+          `${BASE}/athletes/${id}`,
+          undefined,
+          { label: 'espn-athlete-site-v2', ...opts },
+        );
+        if (siteV2) return { bio: siteV2, overview: siteV2, stats: stats ?? null };
+      }
+
       if (!bio && !overview && !stats) return null;
       return { bio, overview, stats };
     },
@@ -164,11 +180,19 @@ export async function espnSearchAthletes(query: string): Promise<any[]> {
     key,
     profileForResource('search'),
     async ({ bypassCache }) => {
-      const data = await fetchJsonResilient<any>(
-        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
-        undefined,
-        { label: 'espn-athlete-search', bypassCache },
-      );
+      const opts = { label: 'espn-athlete-search', bypassCache, retries: 1 };
+      const encoded = encodeURIComponent(query.trim());
+      const data =
+        (await fetchJsonResilient<any>(
+          `${COMMON}/athletes?search=${encoded}&limit=10`,
+          undefined,
+          opts,
+        ))
+        ?? (await fetchJsonResilient<any>(
+          `${BASE}/athletes?search=${encoded}&limit=10`,
+          undefined,
+          { ...opts, label: 'espn-athlete-search-site-v2' },
+        ));
       return data?.items ?? data?.athletes ?? [];
     },
     ['search'],

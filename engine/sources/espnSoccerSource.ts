@@ -169,11 +169,27 @@ export async function espnSoccerAthlete(id: string, league = DEFAULT_SOCCER_LEAG
     profileForResource('athlete'),
     async ({ bypassCache }) => {
       const opts = { bypassCache };
+      const fetchStats = () =>
+        fetchJsonResilient<any>(`${commonPath(league)}/athletes/${id}/stats`, undefined, {
+          label: 'espn-soccer-athlete-stats',
+          ...opts,
+        }).catch(() => null);
+
       const [bio, overview, stats] = await Promise.all([
         fetchJsonResilient<any>(`${commonPath(league)}/athletes/${id}`, undefined, { label: 'espn-soccer-athlete-bio', ...opts }),
         fetchJsonResilient<any>(`${commonPath(league)}/athletes/${id}/overview`, undefined, { label: 'espn-soccer-athlete-overview', ...opts }),
-        fetchJsonResilient<any>(`${commonPath(league)}/athletes/${id}/stats`, undefined, { label: 'espn-soccer-athlete-stats', ...opts }),
+        fetchStats(),
       ]);
+
+      if (!bio && !overview) {
+        const siteV2 = await fetchJsonResilient<any>(
+          `${basePath(league)}/athletes/${id}`,
+          undefined,
+          { label: 'espn-soccer-athlete-site-v2', ...opts },
+        );
+        if (siteV2) return { bio: siteV2, overview: siteV2, stats: stats ?? null };
+      }
+
       if (!bio && !overview && !stats) return null;
       return { bio, overview, stats };
     },
@@ -306,11 +322,13 @@ export function parseEspnSoccerPlays(summary: any): PlayEvent[] {
 
 export function parseEspnSoccerGameMeta(summary: any) {
   const comp = summary?.header?.competitions?.[0] ?? summary?.gameInfo;
+  const broadcasts = comp?.broadcasts;
+  const broadcastList = Array.isArray(broadcasts) ? broadcasts : [];
   return {
     venue: comp?.venue?.fullName ?? summary?.gameInfo?.venue?.fullName,
-    broadcast: comp?.broadcasts?.find((b: any) => b.market === 'national')?.names?.join(', ')
-      ?? comp?.broadcasts?.[0]?.names?.join(', ')
-      ?? comp?.broadcast,
+    broadcast: comp?.broadcast
+      ?? broadcastList.find((b: any) => b.market === 'national')?.names?.join(', ')
+      ?? broadcastList[0]?.names?.join(', '),
     attendance: comp?.attendance ? String(comp.attendance) : undefined,
   };
 }

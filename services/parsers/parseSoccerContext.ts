@@ -79,7 +79,7 @@ export function parseSoccerGameContext(
   leagueSlug?: string,
 ): GameContext | undefined {
   const seasonType = event?.season?.type ?? competition?.season?.type;
-  const notes = competition?.notes ?? [];
+  const notes = Array.isArray(competition?.notes) ? competition.notes : [];
   const headline = notes.find((n: any) => n.type === 'event' || n.headline)?.headline
     ?? notes.find((n: any) => n.headline)?.headline;
 
@@ -89,9 +89,10 @@ export function parseSoccerGameContext(
   const phase = detectPhase(headline ?? typeText, typeText, slug, seasonType);
   const round = detectRound(headline, typeText, slug);
   const statusState = competition?.status?.type?.state ?? event?.status?.type?.state;
+  const broadcasts = competition?.broadcasts;
   const broadcast = competition?.broadcast
-    ?? competition?.broadcasts?.find((b: any) => b.market === 'national')?.names?.join(', ')
-    ?? competition?.broadcasts?.[0]?.names?.join(', ');
+    ?? (Array.isArray(broadcasts) ? broadcasts.find((b: any) => b.market === 'national')?.names?.join(', ') : undefined)
+    ?? (Array.isArray(broadcasts) ? broadcasts[0]?.names?.join(', ') : undefined);
 
   const badge = buildBadge(phase, round, slug);
   const priority = computePriority(phase, round, slug, statusState);

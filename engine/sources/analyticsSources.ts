@@ -1,3 +1,4 @@
+import { externalFetchUrl } from '../../config/siyfApi';
 import { fetchJsonResilient } from '../core/resilientFetch';
 import { cacheGet, cacheKey, cacheSet } from '../core/cache';
 import type { StandingsGroup, StandingsRow } from '../core/types';
@@ -67,7 +68,7 @@ export async function fetchBartTorvikStandings(): Promise<StandingsGroup[]> {
 
   for (const url of urls) {
     const raw = await fetchJsonResilient<TorvikTeam[] | Record<string, TorvikTeam>>(
-      url,
+      externalFetchUrl(url),
       undefined,
       { label: 'barttorvik', retries: 1, timeout: 8_000 },
     );

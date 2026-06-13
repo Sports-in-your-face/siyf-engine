@@ -38,5 +38,8 @@
     "typescript": "^6.0.3",
     "vitest": "^3.2.6",
     "zod": "^4.4.3"
+  },
+  "dependencies": {
+    "syif-web": "file:.."
   }
 }
