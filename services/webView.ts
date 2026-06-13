@@ -353,6 +353,39 @@ function localDayDiff(from: Date, to: Date, tz: string): number {
   return Math.round((toUtc - fromUtc) / DAY_MS);
 }
 
+/** YYYY-MM-DD in the user's local timezone (for calendar grids). */
+export function calendarDateKey(d: Date, tz = getUserTimezone()): string {
+  return localCalendarKey(d, tz);
+}
+
+export function todayCalendarKey(now = new Date(), tz = getUserTimezone()): string {
+  return localCalendarKey(now, tz);
+}
+
+export function shiftCalendarDate(dateStr: string, days: number, tz = getUserTimezone()): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const shifted = new Date(y, m - 1, d);
+  shifted.setDate(shifted.getDate() + days);
+  return localCalendarKey(shifted, tz);
+}
+
+/** Local calendar day for a scoreboard game (matches bucketGamesByDate). */
+export function gameCalendarDate(game: Game, now = new Date(), tz = getUserTimezone()): string {
+  const startIso = game.timing?.startTime;
+  if (startIso) {
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(startIso)
+      ? new Date(`${startIso}T12:00:00`)
+      : new Date(startIso);
+    if (!Number.isNaN(start.getTime())) return localCalendarKey(start, tz);
+  }
+  if (game.statusState === 'post') {
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return localCalendarKey(yesterday, tz);
+  }
+  return localCalendarKey(now, tz);
+}
+
 function mapStatus(state?: 'pre' | 'in' | 'post'): WebGameStatus {
   if (state === 'in') return 'live';
   if (state === 'post') return 'final';
