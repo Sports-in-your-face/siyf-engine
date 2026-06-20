@@ -1,4 +1,5 @@
 import type { GameContext, LeagueContext, SeasonPhase } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 
 const GRAND_SLAMS = [
   { pattern: /australian open/i, label: 'Australian Open' },
@@ -181,7 +182,8 @@ export function sortTennisGamesByContext(games: import('../../types').Game[]): i
 }
 
 export function applyTennisContextToSubtitle(context: GameContext | undefined, fallback?: string): string | undefined {
-  if (context?.headline) return context.headline;
-  if (context?.badge) return context.badge;
-  return fallback;
+  if (context?.headline && !isScoreboardNoiseText(context.headline)) return context.headline;
+  if (context?.badge && !isScoreboardNoiseText(context.badge)) return context.badge;
+  if (fallback && !isScoreboardNoiseText(fallback)) return fallback;
+  return undefined;
 }

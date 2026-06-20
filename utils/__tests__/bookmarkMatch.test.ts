@@ -49,6 +49,38 @@ describe('gameMatchesBookmark', () => {
     });
     expect(gameMatchesBookmark(game, cavsBookmark)).toBe(true);
   });
+
+  it('does not match baseball bookmarks to other sports', () => {
+    const nbaGame = makeGame({
+      sport: 'NBA',
+      away: { name: 'Royals', abbr: 'KC', score: 6 },
+      home: { name: 'Wizards', abbr: 'WSH', score: 2 },
+    });
+    const athleticsBookmark: BookmarkedTeam = {
+      id: '11',
+      name: 'Athletics',
+      abbr: 'ATH',
+      sport: 'BASEBALL',
+      logo: '',
+    };
+    expect(gameMatchesBookmark(nbaGame, athleticsBookmark)).toBe(false);
+  });
+
+  it('does not match when bookmark team id differs from both sides', () => {
+    const game = makeGame({
+      sport: 'BASEBALL',
+      away: { id: '7', name: 'Royals', abbr: 'KC', score: 6 },
+      home: { id: '20', name: 'Nationals', abbr: 'WSH', score: 2 },
+    });
+    const athleticsBookmark: BookmarkedTeam = {
+      id: '11',
+      name: 'Athletics',
+      abbr: 'ATH',
+      sport: 'BASEBALL',
+      logo: '',
+    };
+    expect(gameMatchesBookmark(game, athleticsBookmark)).toBe(false);
+  });
 });
 
 describe('bookmarkSide', () => {

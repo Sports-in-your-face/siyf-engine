@@ -1,5 +1,6 @@
 import type { CompetitorLayout } from '../../config/sportProfiles';
 import type { EngineSport } from '../sportConfig';
+import { applyRuntimeCapabilities } from '../runtimeProfile';
 
 /** What data surfaces this sport actually supports. */
 export interface SportFeatures {
@@ -156,7 +157,7 @@ export const SPORT_CAPABILITIES: Record<EngineSport, SportCapabilities> = {
       espnPath: 'soccer',
       secondary: ['rss', 'supplemental-soccer', 'odds-api'],
     },
-    minTeamCount: 18,
+    minTeamCount: 80,
   },
 
   BASEBALL: {
@@ -284,7 +285,7 @@ export const ALL_DETAIL_CACHE_PREFIXES = [
 ];
 
 export function getSportCapabilities(sport: EngineSport): SportCapabilities {
-  return SPORT_CAPABILITIES[sport];
+  return applyRuntimeCapabilities(SPORT_CAPABILITIES[sport]);
 }
 
 export function isTeamLayout(sport: EngineSport): boolean {

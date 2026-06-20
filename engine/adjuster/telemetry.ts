@@ -1,3 +1,4 @@
+import { engineLogWarn } from '../../config/engineLog';
 import type { ParseInvariantIssue } from './invariants';
 
 export interface ParseBatchMetrics {
@@ -40,7 +41,7 @@ export function recordBatchMetrics(metrics: ParseBatchMetrics): void {
 export function recordDriftAlert(alert: ParseDriftAlert): void {
   driftAlerts.push(alert);
   if (driftAlerts.length > MAX_ALERTS) driftAlerts.shift();
-  console.warn(`[parse-drift] ${alert.sport}: ${alert.message}`, {
+  engineLogWarn(`[parse-drift] ${alert.sport}: ${alert.message}`, {
     parseRate: alert.metrics.parseRate,
     issues: alert.topIssues.slice(0, 3).map((i) => i.code),
   });

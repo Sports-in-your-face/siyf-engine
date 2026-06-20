@@ -1,6 +1,12 @@
 import type { Game } from '../../types';
+import type { EngineSport } from '../sportConfig';
 import { parseDisplayScore } from '../../utils/coerce';
-import { enrichTeam, normalizeTeamAbbr, resolveTeamLogo } from '../sources/teamRegistry';
+import {
+  enrichTeamForSport,
+  normalizeAbbrForSport,
+  normalizeTeamAbbr,
+  resolveTeamLogoForSport,
+} from '../sources/teamRegistry';
 
 /** Scope key for dedupeGamesById — disambiguates WNBA/NCAA and multi-league soccer ids. */
 export function gameDedupeKey(game: Game): string {
@@ -35,9 +41,19 @@ export function gameListKey(game: Game, tab?: string): string {
   return scope ? `${tab ?? ''}-${scope}-${game.id}` : `${tab ?? ''}-${game.id}`;
 }
 
-export function gameMatchKey(awayAbbr: string, homeAbbr: string): string {
-  const a = normalizeTeamAbbr(awayAbbr);
-  const h = normalizeTeamAbbr(homeAbbr);
+export function inferEngineSportFromGame(game: Game): EngineSport | undefined {
+  const s = (game.sport ?? '').toUpperCase();
+  if (s === 'MLB' || s === 'BASEBALL') return 'BASEBALL';
+  if (s === 'NFL' || s === 'FOOTBALL') return 'FOOTBALL';
+  if (s === 'NHL' || s === 'HOCKEY') return 'HOCKEY';
+  if (s === 'NBA' || s === 'BASKETBALL') return 'BASKETBALL';
+  if (s === 'SOCCER') return 'SOCCER';
+  return undefined;
+}
+
+export function gameMatchKey(awayAbbr: string, homeAbbr: string, sport?: EngineSport): string {
+  const a = sport ? normalizeAbbrForSport(sport, awayAbbr) : normalizeTeamAbbr(awayAbbr);
+  const h = sport ? normalizeAbbrForSport(sport, homeAbbr) : normalizeTeamAbbr(homeAbbr);
   return `${a}@${h}`;
 }
 
@@ -56,11 +72,11 @@ function pickBetterScore(a: number | string | null, b: number | string | null, l
   return na ?? nb ?? a ?? b;
 }
 
-function enrichSide(side: Game['away'], game: Game): Game['away'] {
+function enrichSide(side: Game['away'], game: Game, sport: EngineSport): Game['away'] {
   const gs = (game.sport ?? '').toUpperCase();
   if (gs === 'WNBA' || gs === 'NCAA') return side;
 
-  const reg = enrichTeam(side.abbr, {
+  const reg = enrichTeamForSport(sport, side.abbr, {
     name: side.name,
     logo: side.logo,
     color: side.color,
@@ -70,35 +86,41 @@ function enrichSide(side: Game['away'], game: Game): Game['away'] {
     ...side,
     name: side.name || reg.name,
     abbr: reg.abbr,
-    logo: resolveTeamLogo(reg.abbr, side.logo ?? reg.logo),
+    logo: resolveTeamLogoForSport(sport, reg.abbr, side.logo ?? reg.logo),
     color: side.color ?? reg.color,
     alternateColor: side.alternateColor ?? reg.alternateColor,
   };
 }
 
-/** Merge ESPN + BDL games by matchup — prefer ESPN structure, freshest live scores */
-export function mergeScoreboardGames(espnGames: Game[], bdlGames: Game[]): Game[] {
+/** Merge ESPN + supplemental games by matchup — prefer ESPN structure, freshest live scores. */
+export function mergeScoreboardGames(
+  espnGames: Game[],
+  supplementalGames: Game[],
+  sport: EngineSport = 'BASKETBALL',
+): Game[] {
   const map = new Map<string, Game>();
 
   for (const game of espnGames) {
-    const key = gameMatchKey(game.away.abbr, game.home.abbr);
+    const mergeSport = inferEngineSportFromGame(game) ?? sport;
+    const key = gameMatchKey(game.away.abbr, game.home.abbr, mergeSport);
     map.set(key, {
       ...game,
-      away: enrichSide(game.away, game),
-      home: enrichSide(game.home, game),
+      away: enrichSide(game.away, game, mergeSport),
+      home: enrichSide(game.home, game, mergeSport),
     });
   }
 
-  for (const bdlGame of bdlGames) {
-    const key = gameMatchKey(bdlGame.away.abbr, bdlGame.home.abbr);
+  for (const extra of supplementalGames) {
+    const mergeSport = inferEngineSportFromGame(extra) ?? sport;
+    const key = gameMatchKey(extra.away.abbr, extra.home.abbr, mergeSport);
     const existing = map.get(key);
-    const live = bdlGame.statusState === 'in' || existing?.statusState === 'in';
+    const live = extra.statusState === 'in' || existing?.statusState === 'in';
 
     if (!existing) {
       map.set(key, {
-        ...bdlGame,
-        away: enrichSide(bdlGame.away, bdlGame),
-        home: enrichSide(bdlGame.home, bdlGame),
+        ...extra,
+        away: enrichSide(extra.away, extra, mergeSport),
+        home: enrichSide(extra.home, extra, mergeSport),
       });
       continue;
     }
@@ -107,25 +129,25 @@ export function mergeScoreboardGames(espnGames: Game[], bdlGames: Game[]): Game[
       ...existing,
       away: {
         ...existing.away,
-        score: pickBetterScore(existing.away.score, bdlGame.away.score, live),
-        record: existing.away.record ?? bdlGame.away.record,
-        linescores: existing.away.linescores?.length ? existing.away.linescores : bdlGame.away.linescores,
+        score: pickBetterScore(existing.away.score, extra.away.score, live),
+        record: existing.away.record ?? extra.away.record,
+        linescores: existing.away.linescores?.length ? existing.away.linescores : extra.away.linescores,
       },
       home: {
         ...existing.home,
-        score: pickBetterScore(existing.home.score, bdlGame.home.score, live),
-        record: existing.home.record ?? bdlGame.home.record,
-        linescores: existing.home.linescores?.length ? existing.home.linescores : bdlGame.home.linescores,
+        score: pickBetterScore(existing.home.score, extra.home.score, live),
+        record: existing.home.record ?? extra.home.record,
+        linescores: existing.home.linescores?.length ? existing.home.linescores : extra.home.linescores,
       },
-      status: live && bdlGame.statusState === 'in' ? bdlGame.status : existing.status,
-      statusState: live ? (bdlGame.statusState === 'in' ? 'in' : existing.statusState) : existing.statusState,
-      topPerformers: existing.topPerformers?.length ? existing.topPerformers : bdlGame.topPerformers,
-      context: existing.context ?? bdlGame.context,
-      subtitle: existing.subtitle ?? bdlGame.subtitle,
-      timing: existing.timing ?? bdlGame.timing,
-      clock: live && bdlGame.statusState === 'in' && bdlGame.clock
-        ? bdlGame.clock
-        : (existing.timing ? existing.clock : (bdlGame.timing ? bdlGame.clock : existing.clock)),
+      status: live && extra.statusState === 'in' ? extra.status : existing.status,
+      statusState: live ? (extra.statusState === 'in' ? 'in' : existing.statusState) : existing.statusState,
+      topPerformers: existing.topPerformers?.length ? existing.topPerformers : extra.topPerformers,
+      context: existing.context ?? extra.context,
+      subtitle: existing.subtitle ?? extra.subtitle,
+      timing: existing.timing ?? extra.timing,
+      clock: live && extra.statusState === 'in' && extra.clock
+        ? extra.clock
+        : (existing.timing ? existing.clock : (extra.timing ? extra.clock : existing.clock)),
     });
   }
 
@@ -143,9 +165,9 @@ export function findBdlGameId(
   awayAbbr: string,
   homeAbbr: string,
 ): number | undefined {
-  const key = gameMatchKey(awayAbbr, homeAbbr);
+  const key = gameMatchKey(awayAbbr, homeAbbr, 'BASKETBALL');
   const match = bdlGames.find(
-    (g) => gameMatchKey(g.visitor_team.abbreviation, g.home_team.abbreviation) === key,
+    (g) => gameMatchKey(g.visitor_team.abbreviation, g.home_team.abbreviation, 'BASKETBALL') === key,
   );
   return match?.id;
 }

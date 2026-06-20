@@ -16,16 +16,22 @@ import {
   createSafeFetch,
 } from '../core/engineUtils';
 import {
+  buildSoccerSummaryFallbackLeagues,
+  resolveSoccerSummaryTarget,
+} from '../sources/soccerDetailResolver';
+import {
   DEFAULT_SOCCER_LEAGUE,
-  espnSoccerScoreboard,
+  espnSoccerMergedScoreboard,
   espnSoccerSummary,
   extractLeagueSlug,
   parseEspnSoccerBoxScore,
+  buildEspnSoccerPreGameBoxScore,
   parseEspnSoccerGameMeta,
   parseEspnSoccerPlays,
   parseEspnSoccerRoster,
   parseEspnSoccerTeamStats,
   parseEspnSoccerTopPerformers,
+  enrichEspnSoccerRosterSeasonStats,
 } from '../sources/espnSoccerSource';
 import {
   fetchSoccerStandingsAllLeagues,
@@ -35,6 +41,7 @@ import {
   searchSoccerAthletesAllLeagues,
 } from '../sources/soccerLeagueOps';
 import { fetchSupplementalSoccerScoreboards } from '../sources/soccerSupplementalFeeds';
+import { filterGamesBySoccerLeagues } from '../soccerLeagueFilter';
 import { enrichSoccerGamesWithOdds, fetchSoccerFanDuelTopPerformers } from '../sources/soccerOddsSources';
 import {
   enrichSoccerGamesFromRss,
@@ -92,10 +99,10 @@ export const soccerConfig: SportEngineConfig = {
   cacheSourcePrefix: 'espn-soccer',
   cdnTeamKey: 'epl',
   scoreboardCacheKey: cacheKey('soccer-engine', 'scoreboard', 'today'),
-  teamsCacheKey: cacheKey('soccer-teams', 'epl'),
+  teamsCacheKey: cacheKey('soccer-teams', 'core'),
   detailCacheKey: (game) => cacheKey('soccer-detail', resolveLeague(game), game.id),
   summaryCacheKey: (game) => cacheKey('espn-soccer', resolveLeague(game), 'summary', game.id),
-  minTeamCount: 18,
+  minTeamCount: 80,
   notesSourceId: 'guardian',
   sportFilter: 'SOCCER',
   teams: { enrichTeam: enrichSoccerTeam, resolveLogo: resolveSoccerTeamLogo, getAllTeams: getAllSoccerTeams },
@@ -107,7 +114,7 @@ export const soccerConfig: SportEngineConfig = {
     sortGamesByContext: sortSoccerGamesByContext,
   },
   espn: {
-    scoreboard: () => espnSoccerScoreboard(DEFAULT_SOCCER_LEAGUE),
+    scoreboard: espnSoccerMergedScoreboard,
     athlete: resolveSoccerAthlete,
     searchAthletes: searchSoccerAthletesAllLeagues,
     standings: fetchSoccerStandingsAllLeagues,
@@ -115,16 +122,22 @@ export const soccerConfig: SportEngineConfig = {
     teamSchedule: resolveSoccerTeamSchedule,
     detail: {
       fetchSummary: async (game) => {
-        const league = resolveLeague(game);
+        const target = await resolveSoccerSummaryTarget(game);
+        if (!target) return null;
+
+        const { eventId, league } = target;
         const state = game.statusState;
-        const primary = await espnSoccerSummary(game.id, league, state);
+        const primary = await espnSoccerSummary(eventId, league, state);
         if (primary) return primary;
-        if (league !== DEFAULT_SOCCER_LEAGUE) {
-          return espnSoccerSummary(game.id, DEFAULT_SOCCER_LEAGUE, state);
+
+        for (const slug of buildSoccerSummaryFallbackLeagues(league, game)) {
+          const summary = await espnSoccerSummary(eventId, slug, state);
+          if (summary) return summary;
         }
         return null;
       },
       parseBoxScore: parseEspnSoccerBoxScore,
+      buildPreGameBoxScore: (summary, away, home, game) => buildEspnSoccerPreGameBoxScore(summary, away, home, game),
       parseTeamStats: parseEspnSoccerTeamStats,
       parsePlays: parseEspnSoccerPlays,
       parseGameMeta: parseEspnSoccerGameMeta,
@@ -140,7 +153,9 @@ export const soccerConfig: SportEngineConfig = {
     fetchFanDuelTopPerformers: fetchSoccerFanDuelTopPerformers,
   },
   buildPlayerDetails: (player, raw) => buildEspnPlayer(player, raw, getSportProfile('SOCCER')),
+  resolveAthlete: (player) => resolveSoccerAthlete(player.id, player.leagueSport),
   afterPlayerDetails: createHistoricalAfterPlayerDetails('SOCCER'),
+  enrichTeamRosterStats: enrichEspnSoccerRosterSeasonStats,
   playerDetailProviders: [
     {
       id: 'transfer_rumors',
@@ -170,6 +185,8 @@ export const soccerConfig: SportEngineConfig = {
       nextGames = dedupeGames([...nextGames, ...supplemental.games]);
       nextSources.push(...supplemental.sources);
     }
+
+    nextGames = filterGamesBySoccerLeagues(nextGames);
 
     return { games: nextGames, espnRaw, sources: nextSources };
   },

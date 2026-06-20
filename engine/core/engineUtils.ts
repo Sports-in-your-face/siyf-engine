@@ -1,5 +1,6 @@
+import { engineLogError, engineLogInfo, engineLogWarn } from '../../config/engineLog';
 import { EspnGameLogSchema, EspnPlayerDetailsSchema, EspnSeasonStatisticsSchema } from '../sources/espnSchemas';
-import { getSportProfile } from '../../config/sportProfiles';
+import { getSportProfile, getPlayerProfileForLeague } from '../../config/sportProfiles';
 import { coerceDisplayString } from '../../utils/coerce';
 import { getTeamAccent } from '../../utils/teamColors';
 import { refreshAllGameTimings, refreshGameTiming } from '../../utils/gameTime';
@@ -23,9 +24,9 @@ export function createEngineLog(engineName: string) {
   return (level: LogLevel, method: string, msg: string, meta?: unknown): void => {
     const tag = `[${engineName}][${method}]`;
     if (level === 'debug') return;
-    if (level === 'info') console.info(tag, msg, meta ?? '');
-    else if (level === 'warn') console.warn(tag, msg, meta ?? '');
-    else if (level === 'error') console.error(tag, msg, meta ?? '');
+    if (level === 'info') engineLogInfo(tag, msg, meta ?? '');
+    else if (level === 'warn') engineLogWarn(tag, msg, meta ?? '');
+    else if (level === 'error') engineLogError(tag, msg, meta ?? '');
   };
 }
 
@@ -394,6 +395,7 @@ export function createBuildEspnPlayerDetails(
     try {
       const regularSeason = profile.seasonSplitName
         ? splitBlocks.find((s) => s.name === profile.seasonSplitName)
+          ?? splitBlocks.find((s) => /regular/i.test(s.name))
         : splitBlocks[0];
       heroStats = regularSeason ? pickHeroStats(regularSeason.stats, heroStatOrder) : pickHeroStats(player.stats, heroStatOrder);
     } catch (err) {
@@ -589,11 +591,13 @@ export function parseEspnSearchResults(espnResults: unknown): Player[] {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const headshotRaw = athlete.headshot;
+    const leagueSlug = (entry as { leagueSlug?: string }).leagueSlug;
     players.push({
       id,
       name: athlete.displayName ?? athlete.fullName ?? '',
       team: athlete.team?.abbreviation ?? '—',
       position: athlete.position?.abbreviation ?? '—',
+      leagueSport: leagueSlug,
       headshot: typeof headshotRaw === 'object' ? headshotRaw?.href : headshotRaw,
       stats: [],
     });
@@ -603,7 +607,7 @@ export function parseEspnSearchResults(espnResults: unknown): Player[] {
 }
 
 export function createPlayerFallback(player: Player, sport: import('../sportConfig').EngineSport): PlayerDetails {
-  const profile = getSportProfile(sport);
+  const profile = getPlayerProfileForLeague(sport, player.leagueSport);
   return {
     id: player.id,
     name: player.name,
@@ -613,7 +617,7 @@ export function createPlayerFallback(player: Player, sport: import('../sportConf
     height: player.height,
     weight: player.weight,
     headshot: player.headshot || player.headshotUrl,
-    heroStats: pickHeroStats(player.stats, []),
+    heroStats: pickHeroStats(player.stats, profile.heroStatLabels),
     seasonSplits: player.stats.length
       ? [{ name: profile.seasonSplitName ?? 'Regular Season', stats: player.stats }]
       : [],

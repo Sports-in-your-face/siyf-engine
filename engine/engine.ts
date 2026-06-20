@@ -46,3 +46,4 @@ export {
   SPORT_CAPABILITIES,
 } from './core/sportCapabilities';
 export type { SportCapabilities, SportFeatures, SportPipeline, SportApiProfile } from './core/sportCapabilities';
+export { setEngineRuntimeMode, getEngineRuntimeMode } from './runtimeProfile';

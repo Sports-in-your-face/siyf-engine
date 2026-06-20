@@ -13,6 +13,21 @@ export function siyfApiUrl(path: string): string {
   return `${SIYF_API_BASE}${normalized}`;
 }
 
+/** Appwrite JWT for premium proxy routes (web auth). Chrome extension skips paid routes. */
+let _siyfAuthJwt: string | null = null;
+
+export function setSiyfAuthJwt(jwt: string | null): void {
+  _siyfAuthJwt = jwt;
+}
+
+export function getSiyfAuthJwt(): string | null {
+  return _siyfAuthJwt;
+}
+
+export function isSiyfPremium(): boolean {
+  return Boolean(_siyfAuthJwt);
+}
+
 /**
  * Appwrite JWT for the current user session.
  * Set by useAuth after login; cleared on logout.

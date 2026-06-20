@@ -1,4 +1,4 @@
-/** Minimal ESPN scoreboard/event shapes used across sport engines. */
+import { extractEspnEventsFromRaw } from '../adjuster/sourcePatch/schemaPaths';
 
 export interface EspnLeagueRef {
   slug?: string;
@@ -27,9 +27,8 @@ export interface EspnScoreboardPayload {
 }
 
 export function getEspnEvents(raw: unknown): EspnScoreboardEvent[] {
-  if (!raw || typeof raw !== 'object') return [];
-  const events = (raw as EspnScoreboardPayload).events;
-  return Array.isArray(events) ? events : [];
+  const events = extractEspnEventsFromRaw(raw);
+  return events as EspnScoreboardEvent[];
 }
 
 export function findEspnEventById(

@@ -1,11 +1,15 @@
+import { createEngineLog } from '../core/engineUtils';
+import { enrichGameContext } from '../core/mergePayload';
 import { loadRssFeedItems, loadRssFeedsParallel } from '../core/rssFeedCache';
 import {
   textMentionsPlayer,
   type RssItem,
 } from '../core/rss';
-import { enrichGameContext } from '../core/mergePayload';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 import type { Game } from '../core/types';
 import { enrichWtaTennisHeadshots } from './wtaTennisSource';
+
+const log = createEngineLog('tennis-rss');
 
 interface TennisRssFeedDefinition {
   id: string;
@@ -27,7 +31,8 @@ function isTennisGame(game: Game): boolean {
 }
 
 function isGenericNewsHeadline(title: string): boolean {
-  return /power rankings|podcast|betting odds|fantasy tennis|weekly wrap/i.test(title);
+  return isScoreboardNoiseText(title)
+    || /power rankings|podcast|betting odds|fantasy tennis|weekly wrap/i.test(title);
 }
 
 function findMatchItem(items: RssItem[], game: Game): RssItem | undefined {
@@ -50,14 +55,31 @@ export async function enrichTennisGamesFromRss(games: Game[]): Promise<Game[]> {
   const headlineItems = await loadRssFeedsParallel('tennis-rss-feed', TENNIS_RSS_FEEDS, 20);
 
   return games.map((game) => {
-    if (!isTennisGame(game)) return game;
-    const hit = findMatchItem(headlineItems, game);
-    if (!hit) return game;
-    return enrichGameContext(game, {
-      headline: hit.title.slice(0, 100),
-      badge: hit.title.slice(0, 40).toUpperCase(),
-      priority: Math.max(game.context?.priority ?? 0, 250),
-    });
+    try {
+      if (!isTennisGame(game)) return game;
+      const hit = findMatchItem(headlineItems, game);
+      if (!hit || isScoreboardNoiseText(hit.title)) return game;
+
+      let enriched = game;
+      if (!enriched.context?.headline) {
+        enriched = enrichGameContext(enriched, {
+          headline: hit.title.slice(0, 100),
+          priority: Math.max(game.context?.priority ?? 0, 300),
+        });
+      }
+
+      if (game.statusState === 'in' && !enriched.context?.badge) {
+        enriched = enrichGameContext(enriched, {
+          badge: 'LIVE',
+          priority: Math.max(enriched.context?.priority ?? 0, 400),
+        });
+      }
+
+      return enriched;
+    } catch (err) {
+      log('warn', 'enrichTennisGamesFromRss', `enrichment failed for ${game.id}`, err);
+      return game;
+    }
   });
 }
 
@@ -75,6 +97,7 @@ export async function tennisRssCrossCheckTournamentHint(
   for (const feed of TENNIS_RSS_FEEDS) {
     const items = await getFeedItems(feed);
     const hit = items.find((item) => {
+      if (isScoreboardNoiseText(item.title)) return false;
       const text = `${item.title} ${item.description ?? ''}`;
       return text.toLowerCase().includes(tournamentName.toLowerCase())
         && textMentionsPlayer(text, playerName);

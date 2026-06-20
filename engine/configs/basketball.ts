@@ -21,10 +21,11 @@ import { fetchDraftKingsProps, fetchSleeperPlayerDetail } from '../sources/fanta
 import { fetchBartTorvikStandings } from '../sources/analyticsSources';
 import {
   espnAthlete,
+  espnWnbaAthlete,
   espnScoreboard,
   espnSearchAthletes,
   espnStandings,
-  espnSummary,
+  espnSummaryForGame,
   espnTeamRoster,
   espnTeamSchedule,
   buildEspnPreGameBoxScore,
@@ -34,6 +35,7 @@ import {
   parseEspnRoster,
   parseEspnTeamStats,
   parseEspnTopPerformers,
+  enrichEspnNbaRosterSeasonStats,
 } from '../sources/espnSource';
 import { enrichRosterWithGLeague } from '../sources/gleagueSource';
 import { enrichGamesWithOdds, fetchFanDuelTopPerformers } from '../sources/oddsSources';
@@ -52,7 +54,8 @@ import {
 } from '../sources/rssEnricher';
 import { enrichTeam, getAllTeams, resolveTeamLogo } from '../sources/teamRegistry';
 import { fetchWikipediaBio } from '../sources/wikiSources';
-import { getSportProfile } from '../../config/sportProfiles';
+import { isScoreboardNoiseText, contextLabelFromHeadline } from '../../utils/scoreboardNoise';
+import { getPlayerProfileForLeague } from '../../config/sportProfiles';
 import type { SportEngineConfig } from '../sportConfig';
 
 const log = createEngineLog('basketball-engine');
@@ -93,9 +96,9 @@ export const basketballConfig: SportEngineConfig = {
     teamRoster: espnTeamRoster,
     teamSchedule: espnTeamSchedule,
     detail: {
-      fetchSummary: (game) => espnSummary(game.id, game.statusState),
+      fetchSummary: (game) => espnSummaryForGame(game),
       parseBoxScore: parseEspnBoxScore,
-      buildPreGameBoxScore: buildEspnPreGameBoxScore,
+      buildPreGameBoxScore: (summary, away, home, game) => buildEspnPreGameBoxScore(summary, away, home, game),
       parseTeamStats: parseEspnTeamStats,
       parsePlays: parseEspnPlays,
       parseGameMeta: parseEspnGameMeta,
@@ -110,7 +113,10 @@ export const basketballConfig: SportEngineConfig = {
     enrichRosterWithInjuries,
     fetchFanDuelTopPerformers,
   },
-  buildPlayerDetails: (player, raw) => buildEspnPlayer(player, raw, getSportProfile('BASKETBALL')),
+  buildPlayerDetails: (player, raw) =>
+    buildEspnPlayer(player, raw, getPlayerProfileForLeague('BASKETBALL', player.leagueSport)),
+  resolveAthlete: (player) =>
+    player.leagueSport === 'WNBA' ? espnWnbaAthlete(player.id) : espnAthlete(player.id),
   playerDetailProviders: [
     { id: 'sleeper', fetch: (player) => fetchSleeperPlayerDetail(player) },
     { id: 'wikipedia', fetch: (player) => fetchWikipediaBio(player) },
@@ -137,6 +143,7 @@ export const basketballConfig: SportEngineConfig = {
   mergeStandingsExtra: mergeStandingsGroups,
   enrichRosterExtra: enrichRosterWithGLeague,
   rosterExtraSourceId: 'gleague',
+  enrichTeamRosterStats: enrichEspnNbaRosterSeasonStats,
   searchWithWikidata: true,
   getFeaturedGame: (games) =>
     sortGamesByContext(games).find(
@@ -159,16 +166,17 @@ export const basketballConfig: SportEngineConfig = {
             rssCrossCheckSeriesHint(game.away.name, game.home.name),
           );
           const hint = res.success ? res.data : null;
-          if (!hint?.headline) return game;
+          if (!hint?.headline || isScoreboardNoiseText(hint.headline)) return game;
 
+          const badge = contextLabelFromHeadline(hint.headline);
           const ctx = mergeContext(game.context, {
-            phase: 'finals',
+            phase: game.context?.phase ?? 'finals',
             headline: hint.headline,
-            badge: hint.headline.replace(' - ', ' · ').toUpperCase(),
+            ...(badge ? { badge } : {}),
             seriesSummary: hint.seriesSummary ?? game.context?.seriesSummary,
             priority: 1050,
           });
-          return { ...game, context: ctx, subtitle: hint.headline };
+          return { ...game, context: ctx };
         } catch (err) {
           log('warn', 'enrichMissingContext', `RSS finals hint failed for ${game.id}`, err);
           return game;

@@ -44,4 +44,27 @@ describe('filterRecentGames', () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0].timing?.startTime).toBe('2026-09-13T15:00:00Z');
   });
+
+  it('drops cancelled games and unplayed games after a clinched series', () => {
+    const now = new Date('2026-06-17T18:00:00Z');
+    const games = [
+      { ...preGame('2026-06-17T22:00:00Z'), status: 'Cancelled', statusState: 'post' as const },
+      {
+        ...preGame('2026-06-17T22:00:00Z'),
+        away: { name: 'Away', abbr: 'VGK', score: null },
+        home: { name: 'Home', abbr: 'CAR', score: null },
+        context: {
+          phase: 'playoffs' as const,
+          priority: 700,
+          seriesLength: 7,
+          awaySeriesWins: 2,
+          homeSeriesWins: 4,
+        },
+      },
+      preGame('2026-06-18T22:00:00Z'),
+    ];
+    const filtered = filterRecentGames(games, now);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].timing?.startTime).toBe('2026-06-18T22:00:00Z');
+  });
 });

@@ -5,6 +5,7 @@ import {
   refineFootballLeaguePhase,
   sortFootballGamesByContext,
 } from '../../services/parsers/parseFootballContext';
+import { guardedEspnTeamSummaryEventId } from '../core/espnSummaryGuard';
 import { cacheKey } from '../core/cache';
 import {
   FOOTBALL_LABEL_INDEX,
@@ -23,11 +24,13 @@ import {
   espnNflTeamRoster,
   espnNflTeamSchedule,
   parseEspnNflBoxScore,
+  buildEspnNflPreGameBoxScore,
   parseEspnNflGameMeta,
   parseEspnNflPlays,
   parseEspnNflRoster,
   parseEspnNflTeamStats,
   parseEspnNflTopPerformers,
+  enrichEspnNflRosterSeasonStats,
 } from '../sources/espnNflSource';
 import { enrichNflGamesWithOdds, fetchNflFanDuelTopPerformers } from '../sources/nflOddsSources';
 import {
@@ -38,6 +41,7 @@ import {
   nflRssCrossCheckPlayoffHint,
 } from '../sources/nflRssEnricher';
 import { enrichNflTeam, getAllNflTeams, resolveNflTeamLogo } from '../sources/teamRegistry';
+import { isScoreboardNoiseText, contextLabelFromHeadline } from '../../utils/scoreboardNoise';
 import { getSportProfile } from '../../config/sportProfiles';
 import { createHistoricalAfterPlayerDetails } from '../sources/historicalSources';
 import type { SportEngineConfig } from '../sportConfig';
@@ -80,7 +84,11 @@ export const footballConfig: SportEngineConfig = {
     teamRoster: espnNflTeamRoster,
     teamSchedule: espnNflTeamSchedule,
     detail: {
-      fetchSummary: (game) => espnNflSummary(game.id, game.statusState),
+      fetchSummary: (game) => {
+        const eventId = guardedEspnTeamSummaryEventId(game);
+        return eventId ? espnNflSummary(eventId, game.statusState) : Promise.resolve(null);
+      },
+      buildPreGameBoxScore: buildEspnNflPreGameBoxScore,
       parseBoxScore: parseEspnNflBoxScore,
       parseTeamStats: parseEspnNflTeamStats,
       parsePlays: parseEspnNflPlays,
@@ -98,6 +106,7 @@ export const footballConfig: SportEngineConfig = {
   },
   buildPlayerDetails: (player, raw) => buildEspnPlayer(player, raw, getSportProfile('FOOTBALL')),
   afterPlayerDetails: createHistoricalAfterPlayerDetails('FOOTBALL'),
+  enrichTeamRosterStats: enrichEspnNflRosterSeasonStats,
   playerDetailProviders: [
     {
       id: 'pft_rumors',
@@ -120,15 +129,16 @@ export const footballConfig: SportEngineConfig = {
             nflRssCrossCheckPlayoffHint(game.away.name, game.home.name),
           );
           const hint = res.success ? res.data : null;
-          if (!hint?.headline) return game;
+          if (!hint?.headline || isScoreboardNoiseText(hint.headline)) return game;
 
+          const badge = contextLabelFromHeadline(hint.headline);
           const ctx = mergeFootballContext(game.context, {
             phase: game.context?.phase ?? 'playoffs',
             headline: hint.headline,
-            badge: hint.headline.toUpperCase().slice(0, 40),
+            ...(badge ? { badge } : {}),
             priority: 850,
           });
-          return { ...game, context: ctx, subtitle: hint.headline };
+          return { ...game, context: ctx };
         } catch {
           return game;
         }

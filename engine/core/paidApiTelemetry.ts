@@ -1,3 +1,5 @@
+import { engineLogInfo } from '../../config/engineLog';
+
 export type PaidApiId = 'bdl' | 'odds' | 'sgo' | 'sports' | 'sports-basketball';
 
 const counts: Record<PaidApiId, number> = {
@@ -31,7 +33,7 @@ export function trackPaidApiUse(api: PaidApiId, reason?: string): void {
   counts[api] += 1;
   sessionTotal += 1;
   const breakdown = formatBreakdown();
-  console.info(
+  engineLogInfo(
     `[paid-api-used] ${api}${reason ? ` (${reason})` : ''} — call #${sessionTotal}${breakdown ? ` | ${breakdown}` : ''}`,
   );
 }

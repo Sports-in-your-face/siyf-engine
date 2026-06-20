@@ -1,11 +1,14 @@
 import type { Game } from '../types';
 import { coerceDisplayString } from './coerce';
 import { extractGameOdds } from './gameMeta';
+import { isScoreboardNoiseText } from './scoreboardNoise';
 
 /** Strip misleading subtitles that leaked from RSS/odds enrichment. */
 export function displaySubtitle(game: Game): string | undefined {
   const sub = coerceDisplayString(game.subtitle);
   if (!sub) return undefined;
+
+  if (isScoreboardNoiseText(sub)) return undefined;
 
   const lower = sub.toLowerCase();
   const isFinals = game.context?.phase === 'finals';

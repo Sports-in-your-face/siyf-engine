@@ -1,9 +1,9 @@
 import { getEspnEvents } from './core/espnEventTypes';
-import { parseEventsWithHashGate } from './core/deltaHash';
-import { cacheBustKey, cacheGet, cacheGetStale, cacheIsFresh, cacheKey, cacheSetWithProfile, withCache } from './core/cache';
-import { dedupeRequest, coalesceKeyGame, coalesceKeyScoreboard } from './core/resilientFetch';
+import { isYahooSourcedGameId, buildPreGameSummaryStub, resolveTeamIdsFromRegistry } from './core/espnSummaryGuard';
+import { parseEventsForSport } from '../services/parsers/parseGameEvent';
+import { cacheGet, cacheGetStale, cacheIsFresh, cacheKey, cacheSetWithProfile, withCache } from './core/cache';
+import { coalesceKeyScoreboard, dedupeRequest } from './core/resilientFetch';
 import { syncCacheFromScoreboard } from './core/cacheInvalidation';
-import { shouldSkipScoreboardEnrichment } from './adjuster/deltaFetch';
 import { CACHE_PROFILES, profileForGameState } from './core/cacheTiers';
 import { cascadeFirst, cascadeMergePartial } from './core/providerRunner';
 import { mergePlayerDetails } from './core/mergePayload';
@@ -13,15 +13,14 @@ import {
   createEngineLog,
   createPlayerFallback,
   createSafeFetch,
-  isEspnAthleteId,
   parseEspnSearchResults,
-  pickEspnSearchMatch,
   prefetchLiveDetails,
   safeRefreshTimings,
   safeTryAsync,
   safeTrySync,
   scoringPlaysToEventLog,
 } from './core/engineUtils';
+import { getEngineRuntimeMode } from './runtimeProfile';
 import { refreshGameTiming } from '../utils/gameTime';
 import { filterRecentGames } from '../utils/gameFilters';
 import { dedupeGamesById } from './core/mergeGames';
@@ -38,6 +37,8 @@ import {
   patchLiveScoresFromActionNetwork,
   supportsActionNetworkScoreFallback,
 } from './core/paidApiFallback';
+import { tryYahooScoreboardFallback } from './core/yahooScoreboardFallback';
+import { recordParseBatch } from './adjuster/adjuster';
 import { getSportCapabilities } from './core/sportCapabilities';
 import { wikidataSearchProvider } from './sources/wikiSources';
 import type { Game, LeagueContext, Player, PlayerDetails, StatItem } from '../types';
@@ -47,7 +48,9 @@ import type { SportEngine, SportEngineConfig } from './sportConfig';
 export function createSportEngine(config: SportEngineConfig): SportEngine {
   config.onInit?.();
 
-  const caps = getSportCapabilities(config.sport);
+  // Read at call time so setEngineRuntimeMode('extension') applies even when engines
+  // are constructed before the Chrome entrypoint sets runtime mode (ESM import order).
+  const getCaps = () => getSportCapabilities(config.sport);
   const log = createEngineLog(`${config.id}-engine`);
   const safeFetch = createSafeFetch(log);
   const enrichGameTeams = createEnrichGameTeams(config.teams.enrichTeam, config.teams.resolveLogo, log);
@@ -56,7 +59,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   let scoreboardRevalidateInFlight = false;
 
   function finalizeScoreboardGames(games: Game[]): Game[] {
-    const enriched = caps.pipeline.teamLogoEnrichment
+    const enriched = getCaps().pipeline.teamLogoEnrichment
       ? games.map((g) => enrichGameTeams(g))
       : games;
     return safeRefreshTimings(enriched, log);
@@ -82,7 +85,13 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     return base.map((g) => byId.get(g.id) ?? g);
   }
 
-  async function loadScoreboard(): Promise<EngineResult<Game[]>> {
+  interface LoadScoreboardOptions {
+    /** Background poll/revalidate — ESPN scores only, skip RSS/odds/extras. */
+    light?: boolean;
+  }
+
+  async function loadScoreboard(options?: LoadScoreboardOptions): Promise<EngineResult<Game[]>> {
+    const light = options?.light === true;
     const sources: DataSource[] = [];
     let espnRaw: unknown = null;
     let games: Game[] = [];
@@ -93,15 +102,25 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
       espnRaw = raw;
       games = config.mapScheduleGames
         ? config.mapScheduleGames(espnEvents, raw)
-        : parseEventsWithHashGate(espnEvents, config.sport);
+        : parseEventsForSport(espnEvents, config.sport);
       if (games.length) sources.push('espn');
+    }
+
+    const parseReport = recordParseBatch({
+      sport: config.sport,
+      rawCount: espnEvents.length,
+      parsed: games,
+      skipped: Math.max(0, espnEvents.length - games.length),
+    });
+    if (!parseReport.healthy && espnEvents.length > 0) {
+      log('warn', 'getScoreboard', 'parse adjuster flagged ESPN drift', parseReport.alerts[0]?.message);
     }
 
     if (config.sportFilter) {
       games = games.filter((g) => !g.sport || g.sport === config.sportFilter);
     }
 
-    if (caps.pipeline.scoreboardExtras && config.loadScoreboardExtras) {
+    if (!light && getCaps().pipeline.scoreboardExtras && config.loadScoreboardExtras) {
       const extra = await safeTryAsync(
         log,
         'getScoreboard',
@@ -114,14 +133,20 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
       sources.splice(0, sources.length, ...extra.sources);
     }
 
-    if (supportsActionNetworkScoreFallback(config.sport)) {
+    if (!light && supportsActionNetworkScoreFallback(config.sport)) {
       const scoreResult = await enrichTeamSportScoreboard(config.sport, games, sources);
       games = scoreResult.games;
       sources.splice(0, sources.length, ...scoreResult.sources);
     }
 
+    if (!light) {
+      const yahooResult = await tryYahooScoreboardFallback(config.sport, games, sources);
+      games = yahooResult.games;
+      sources.splice(0, sources.length, ...yahooResult.sources);
+    }
+
     let league: LeagueContext | null = null;
-    if (caps.pipeline.leagueContext) {
+    if (getCaps().pipeline.leagueContext) {
       league = safeTrySync(
         log,
         'getScoreboard',
@@ -138,10 +163,9 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
     const preEnrichGames = games;
     const enrichmentVariants: Game[][] = [];
-    const skipHeavyEnrichment = shouldSkipScoreboardEnrichment(games);
 
     const enrichmentTasks: Promise<Game[]>[] = [];
-    if (!skipHeavyEnrichment && caps.pipeline.enrichMissingContext && config.enrichMissingContext) {
+    if (!light && getCaps().pipeline.enrichMissingContext && config.enrichMissingContext) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -152,7 +176,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         ),
       );
     }
-    if (!skipHeavyEnrichment && caps.pipeline.rss) {
+    if (!light && getCaps().pipeline.rss) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -163,7 +187,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         ),
       );
     }
-    if (!skipHeavyEnrichment && caps.pipeline.odds) {
+    if (!light && getCaps().pipeline.odds) {
       enrichmentTasks.push(
         safeTryAsync(
           log,
@@ -184,7 +208,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
     games = dedupeGamesById(games);
 
-    if (caps.pipeline.specialClassification) {
+    if (getCaps().pipeline.specialClassification) {
       games = applySpecialClassificationToGames(games);
     }
 
@@ -222,7 +246,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   function scheduleScoreboardRevalidate(): void {
     if (scoreboardRevalidateInFlight) return;
     scoreboardRevalidateInFlight = true;
-    void dedupeRequest(coalesceKeyScoreboard(config.scoreboardCacheKey), loadScoreboard).finally(() => {
+    void dedupeRequest(coalesceKeyScoreboard(config.scoreboardCacheKey), () => loadScoreboard({ light: true })).finally(() => {
       scoreboardRevalidateInFlight = false;
     });
   }
@@ -231,6 +255,14 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     const cacheKey = config.scoreboardCacheKey;
     const cached = cacheGet<Game[]>(cacheKey);
     const hasLive = cached?.some((g) => g.statusState === 'in') ?? false;
+
+    // Extension: show last good scoreboard immediately; poller revalidates in background.
+    if (getEngineRuntimeMode() === 'extension' && cached?.length) {
+      if (!cacheIsFresh(cacheKey) || hasLive) {
+        scheduleScoreboardRevalidate();
+      }
+      return { data: finalizeScoreboardGames(cached), sources: ['cache'] };
+    }
 
     if (cached?.length && cacheIsFresh(cacheKey) && !hasLive) {
       scheduleScoreboardRevalidate();
@@ -241,10 +273,6 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   }
 
   async function getGameDetail(game: Game): Promise<EngineResult<GameDetail>> {
-    return dedupeRequest(coalesceKeyGame(game.id), () => getGameDetailOnce(game));
-  }
-
-  async function getGameDetailOnce(game: Game): Promise<EngineResult<GameDetail>> {
     const cacheK = config.detailCacheKey(game);
 
     const detailProfile = profileForGameState(game.statusState);
@@ -261,13 +289,19 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         const sources: DataSource[] = [];
         let detail: GameDetail = { ...enrichGameTeams(game), dataSources: [] };
 
-        const summaryRes = await safeFetch('getGameDetail.summary', () => config.espn.detail.fetchSummary(game));
+        const summaryRes = isYahooSourcedGameId(game.id) && config.sport !== 'SOCCER'
+          ? { success: false as const, error: new Error('yahoo-only') }
+          : await safeFetch('getGameDetail.summary', () => config.espn.detail.fetchSummary(game));
         const summary = summaryRes.success ? summaryRes.data : null;
+
+        if (getCaps().features.boxScore && game.statusState === 'pre' && config.espn.detail.buildPreGameBoxScore) {
+          await ensureTeamRegistry(config.cdnTeamKey);
+        }
 
         if (summary) {
           sources.push('espn');
 
-          if (caps.features.boxScore) {
+          if (getCaps().features.boxScore) {
             try {
               const isPre = game.statusState === 'pre';
               let boxScore: GameDetail['boxScore'];
@@ -275,7 +309,19 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
               if (isPre) {
                 // Scheduled games: only show curated pregame preview, never raw ESPN box score stubs.
                 if (config.espn.detail.buildPreGameBoxScore) {
-                  boxScore = await config.espn.detail.buildPreGameBoxScore(summary, detail.away, detail.home);
+                  boxScore = await config.espn.detail.buildPreGameBoxScore(summary, detail.away, detail.home, game);
+                  if (!boxScore) {
+                    const registry = config.teams.getAllTeams();
+                    const teams = resolveTeamIdsFromRegistry(
+                      detail.away,
+                      detail.home,
+                      (abbr) => registry.find((t) => t.abbr === abbr),
+                    );
+                    const stub = buildPreGameSummaryStub(teams.away, teams.home);
+                    if (stub) {
+                      boxScore = await config.espn.detail.buildPreGameBoxScore(stub, teams.away, teams.home, game);
+                    }
+                  }
                 }
               } else {
                 boxScore = config.espn.detail.parseBoxScore(summary, detail.away, detail.home);
@@ -290,7 +336,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
             }
           }
 
-          if (caps.features.teamStats) {
+          if (getCaps().features.teamStats) {
             const teamStats = safeTrySync(
               log,
               'getGameDetail',
@@ -301,7 +347,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
             if (teamStats) detail.teamStats = teamStats;
           }
 
-          if (caps.features.plays) {
+          if (getCaps().features.plays) {
             const plays = safeTrySync(
               log,
               'getGameDetail',
@@ -323,7 +369,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
           detail.broadcast = meta.broadcast ?? detail.context?.broadcast;
           if (meta.attendance) detail.attendance = meta.attendance;
 
-          if (caps.pipeline.leagueContext) {
+          if (getCaps().pipeline.leagueContext) {
             const league = (game as Game & { leagueSlug?: string }).leagueSlug;
             const summaryContext = safeTrySync(
               log,
@@ -344,7 +390,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
             }
           }
 
-          if (caps.features.boxScore || caps.layout === 'team') {
+          if (getCaps().features.boxScore || getCaps().layout === 'team') {
             const performers = safeTrySync(
               log,
               'getGameDetail',
@@ -361,8 +407,37 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
             }
           }
 
-          if (caps.features.eventLog && !detail.eventLog?.length) {
+          if (getCaps().features.eventLog && !detail.eventLog?.length) {
             detail.eventLog = scoringPlaysToEventLog(detail.plays);
+          }
+        } else if (
+          game.statusState === 'pre'
+          && getCaps().features.boxScore
+          && config.espn.detail.buildPreGameBoxScore
+          && !detail.boxScore
+        ) {
+          const registry = config.teams.getAllTeams();
+          const teams = resolveTeamIdsFromRegistry(
+            detail.away,
+            detail.home,
+            (abbr) => registry.find((t) => t.abbr === abbr),
+          );
+          const stub = buildPreGameSummaryStub(teams.away, teams.home);
+          if (stub) {
+            try {
+              const boxScore = await config.espn.detail.buildPreGameBoxScore(
+                stub,
+                teams.away,
+                teams.home,
+                game,
+              );
+              if (boxScore) {
+                detail.boxScore = boxScore;
+                sources.push('espn');
+              }
+            } catch (err) {
+              log('warn', 'getGameDetail', 'pre-game roster fallback failed', err);
+            }
           }
         }
 
@@ -389,7 +464,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
           }
         }
 
-        if (caps.pipeline.fanDuelPerformers && detailNeedsTopPerformers(detail)) {
+        if (getCaps().pipeline.fanDuelPerformers && detailNeedsTopPerformers(detail)) {
           const fdPerformers = await safeTryAsync(
             log,
             'getGameDetail',
@@ -403,7 +478,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
           }
         }
 
-        if (caps.pipeline.odds && detailNeedsOdds(detail)) {
+        if (getCaps().pipeline.odds && detailNeedsOdds(detail)) {
           const withOdds = await safeTryAsync(
             log,
             'getGameDetail',
@@ -433,7 +508,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
           }
         }
 
-        if (caps.pipeline.rss) {
+        if (getCaps().pipeline.rss) {
           try {
             const [enriched] = await config.enrichment.enrichGamesFromRss([detail]);
             if (enriched) {
@@ -468,7 +543,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   }
 
   async function getTeams(): Promise<EngineResult<ResolvedTeam[]>> {
-    if (!caps.features.teams) return { data: [], sources: ['fallback'] };
+    if (!getCaps().features.teams) return { data: [], sources: ['fallback'] };
 
     const cached = cacheGet<ResolvedTeam[]>(config.teamsCacheKey);
     if (cached?.length) return { data: cached, sources: ['cdn'] };
@@ -481,7 +556,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     const sources: DataSource[] = teams.length ? ['cdn'] : ['fallback'];
 
     if (teams.length) {
-      if (caps.pipeline.teamNotes) {
+      if (getCaps().pipeline.teamNotes) {
         const withNotes = await safeTryAsync(
           log,
           'getTeams',
@@ -504,39 +579,20 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     const sources: DataSource[] = [];
     let detail = createPlayerFallback(player, config.sport);
 
-    let espnPlayer = player;
-    if (!isEspnAthleteId(player.id)) {
-      const searchRes = await safeFetch('getPlayerDetails.resolveEspnId', () =>
-        config.espn.searchAthletes(player.name),
+    const res = await safeFetch('getPlayerDetails.espn', () =>
+      config.resolveAthlete?.(player) ?? config.espn.athlete(player.id),
+    );
+    if (res.success && res.data) {
+      const parsed = safeTrySync(
+        log,
+        'getPlayerDetails',
+        'ESPN player parse',
+        () => config.buildPlayerDetails(player, res.data),
+        null,
       );
-      if (searchRes.success && searchRes.data) {
-        const match = pickEspnSearchMatch(parseEspnSearchResults(searchRes.data), player.name);
-        if (match) {
-          espnPlayer = {
-            ...player,
-            id: match.id,
-            team: match.team !== '—' ? match.team : player.team,
-            position: match.position !== '—' ? match.position : player.position,
-            headshot: match.headshot ?? player.headshot,
-          };
-        }
-      }
-    }
-
-    if (isEspnAthleteId(espnPlayer.id)) {
-      const res = await safeFetch('getPlayerDetails.espn', () => config.espn.athlete(espnPlayer.id));
-      if (res.success && res.data) {
-        const parsed = safeTrySync(
-          log,
-          'getPlayerDetails',
-          'ESPN player parse',
-          () => config.buildPlayerDetails(espnPlayer, res.data),
-          null,
-        );
-        if (parsed) {
-          detail = parsed;
-          sources.push('espn');
-        }
+      if (parsed) {
+        detail = parsed;
+        sources.push('espn');
       }
     }
 
@@ -583,7 +639,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     }
 
     if (config.afterPlayerDetails) {
-      const result = await config.afterPlayerDetails(espnPlayer, detail, sources);
+      const result = await config.afterPlayerDetails(player, detail, sources);
       detail = result.detail;
       sources.splice(0, sources.length, ...result.sources);
     }
@@ -608,12 +664,9 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         [],
       );
       const seen = new Set(players.map((p) => p.id));
-      const seenNames = new Set(players.map((p) => p.name.trim().toLowerCase()));
       for (const p of wikiPlayers) {
-        const nameKey = p.name.trim().toLowerCase();
-        if (seen.has(p.id) || seenNames.has(nameKey)) continue;
+        if (seen.has(p.id)) continue;
         seen.add(p.id);
-        seenNames.add(nameKey);
         players.push(p);
       }
       if (wikiPlayers.length) resultSources.push('wikidata');
@@ -626,7 +679,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   }
 
   async function getStandings(): Promise<EngineResult<StandingsGroup[]>> {
-    if (!caps.features.standings) return { data: [], sources: ['fallback'] };
+    if (!getCaps().features.standings) return { data: [], sources: ['fallback'] };
 
     const providers = config.standingsProviders ?? [
       { id: 'espn', fetch: () => config.espn.standings() },
@@ -657,17 +710,29 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
   }
 
   async function getTeamRoster(teamId: string): Promise<EngineResult<Player[]>> {
-    if (!caps.features.roster) return { data: [], sources: ['fallback'] };
+    if (!getCaps().features.roster) return { data: [], sources: ['fallback'] };
 
     try {
       const res = await safeFetch('getTeamRoster', () => config.espn.teamRoster(teamId));
       const data = res.success ? res.data : null;
       if (!data) return { data: [], sources: ['fallback'] };
 
-      let roster = config.espn.detail.parseRoster(data).map((p) => ({
-        ...p,
-        team: '',
-        stats: [] as StatItem[],
+      await ensureTeamRegistry(config.cdnTeamKey);
+      const teams = config.teams.getAllTeams();
+      const teamInfo = teams.find((t) => t.id === teamId);
+      const teamLabel = teamInfo?.abbr ?? teamInfo?.name ?? '';
+
+      let roster: Player[] = config.espn.detail.parseRoster(data).map((p) => ({
+        id: p.id,
+        name: p.name,
+        position: p.position,
+        number: p.number,
+        headshot: p.headshot,
+        height: (p as { height?: string }).height,
+        weight: (p as { weight?: string }).weight,
+        injuryStatus: (p as { injuryStatus?: string }).injuryStatus,
+        team: teamLabel,
+        stats: (p as { stats?: StatItem[] }).stats ?? [],
       }));
 
       const resultSources: DataSource[] = ['espn'];
@@ -686,7 +751,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
         }
       }
 
-      if (caps.pipeline.injuryEnrichment) {
+      if (getCaps().pipeline.injuryEnrichment) {
         const withInjuries = await safeTryAsync(
           log,
           'getTeamRoster',
@@ -706,8 +771,22 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     }
   }
 
+  async function enrichTeamRosterStats(roster: Player[]): Promise<EngineResult<Player[]>> {
+    if (!roster.length || !config.enrichTeamRosterStats) {
+      return { data: roster, sources: ['fallback'] };
+    }
+    const enriched = await safeTryAsync(
+      log,
+      'enrichTeamRosterStats',
+      'season stats',
+      () => config.enrichTeamRosterStats!(roster),
+      roster,
+    );
+    return { data: enriched ?? roster, sources: ['espn'] };
+  }
+
   async function getTeamSchedule(teamId: string): Promise<EngineResult<Game[]>> {
-    if (!caps.features.schedule) return { data: [], sources: ['fallback'] };
+    if (!getCaps().features.schedule) return { data: [], sources: ['fallback'] };
 
     const res = await safeFetch('getTeamSchedule', () => config.espn.teamSchedule(teamId));
     if (!res.success || !res.data) return { data: [], sources: ['fallback'] };
@@ -719,18 +798,16 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
 
     const games = config.mapScheduleGames
       ? config.mapScheduleGames(payload.events, res.data)
-      : parseEventsWithHashGate(payload.events, config.sport);
+      : parseEventsForSport(payload.events, config.sport);
 
-    const enriched = caps.pipeline.teamLogoEnrichment
+    const enriched = getCaps().pipeline.teamLogoEnrichment
       ? games.map(enrichGameTeams)
       : games;
-    const timed = finalizeScoreboardGames(enriched);
-    return { data: timed, sources: ['espn'] };
+    return { data: enriched, sources: ['espn'] };
   }
 
   const engine: SportEngine = {
     getScoreboard,
-    bustScoreboardCache: () => cacheBustKey(config.scoreboardCacheKey),
     getLeagueContext: () => cachedLeagueContext,
     getGameDetail,
     prefetchLiveDetails: (games) => prefetchLiveDetails((g) => getGameDetail(g), games, log),
@@ -739,6 +816,7 @@ export function createSportEngine(config: SportEngineConfig): SportEngine {
     searchPlayers,
     getStandings,
     getTeamRoster,
+    enrichTeamRosterStats,
     getTeamSchedule,
   };
 

@@ -1,11 +1,11 @@
 import {
-  applyHockeyContextToSubtitle,
   mergeHockeyContext,
   parseHockeyContextFromSummary,
   parseHockeyLeagueContext,
   refineHockeyLeaguePhase,
   sortHockeyGamesByContext,
 } from '../../services/parsers/parseHockeyContext';
+import { guardedEspnTeamSummaryEventId } from '../core/espnSummaryGuard';
 import { cacheKey } from '../core/cache';
 import {
   createBuildEspnPlayerDetails,
@@ -30,6 +30,7 @@ import {
   parseEspnNhlRoster,
   parseEspnNhlTeamStats,
   parseEspnNhlTopPerformers,
+  enrichEspnNhlRosterSeasonStats,
 } from '../sources/espnNhlSource';
 import { enrichNhlGamesWithOdds, fetchNhlFanDuelTopPerformers } from '../sources/nhlOddsSources';
 import {
@@ -40,6 +41,7 @@ import {
 } from '../sources/nhlRssEnricher';
 import { enrichNhlTeam, getAllNhlTeams, resolveNhlTeamLogo } from '../sources/teamRegistry';
 import { getSportProfile } from '../../config/sportProfiles';
+import { isScoreboardNoiseText, contextLabelFromHeadline } from '../../utils/scoreboardNoise';
 import { createHistoricalAfterPlayerDetails } from '../sources/historicalSources';
 import type { SportEngineConfig } from '../sportConfig';
 
@@ -81,7 +83,10 @@ export const hockeyConfig: SportEngineConfig = {
     teamRoster: espnNhlTeamRoster,
     teamSchedule: espnNhlTeamSchedule,
     detail: {
-      fetchSummary: (game) => espnNhlSummary(game.id, game.statusState),
+      fetchSummary: (game) => {
+        const eventId = guardedEspnTeamSummaryEventId(game);
+        return eventId ? espnNhlSummary(eventId, game.statusState) : Promise.resolve(null);
+      },
       buildPreGameBoxScore: buildEspnNhlPreGameBoxScore,
       parseBoxScore: parseEspnNhlBoxScore,
       parseTeamStats: parseEspnNhlTeamStats,
@@ -100,6 +105,7 @@ export const hockeyConfig: SportEngineConfig = {
   },
   buildPlayerDetails: (player, raw) => buildEspnPlayer(player, raw, getSportProfile('HOCKEY')),
   afterPlayerDetails: createHistoricalAfterPlayerDetails('HOCKEY'),
+  enrichTeamRosterStats: enrichEspnNhlRosterSeasonStats,
   getFeaturedGame: (games) =>
     sortHockeyGamesByContext(games).find(
       (g) => g.context?.phase === 'finals' || (g.context?.phase === 'playoffs' && g.statusState === 'pre'),
@@ -117,15 +123,16 @@ export const hockeyConfig: SportEngineConfig = {
             nhlRssCrossCheckPlayoffHint(game.away.name, game.home.name),
           );
           const hint = res.success ? res.data : null;
-          if (!hint?.headline) return game;
+          if (!hint?.headline || isScoreboardNoiseText(hint.headline)) return game;
 
+          const badge = contextLabelFromHeadline(hint.headline);
           const ctx = mergeHockeyContext(game.context, {
-            phase: 'playoffs',
+            phase: game.context?.phase ?? 'playoffs',
             headline: hint.headline,
-            badge: hint.headline.slice(0, 40).toUpperCase(),
+            ...(badge ? { badge } : {}),
             priority: 750,
           });
-          return { ...game, context: ctx, subtitle: applyHockeyContextToSubtitle(ctx, game.subtitle) };
+          return { ...game, context: ctx };
         } catch {
           return game;
         }

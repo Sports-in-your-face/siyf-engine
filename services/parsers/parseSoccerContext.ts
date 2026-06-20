@@ -1,4 +1,5 @@
 import type { GameContext, LeagueContext, SeasonPhase } from '../../types';
+import { coreSoccerLeagueLabel, coreSoccerLeaguePriority, isCoreSoccerLeague } from '../../engine/core/coreSoccerLeagues';
 import { leagueLabel } from '../../engine/sources/teamRegistry';
 
 const PHASE_PRIORITY: Record<SeasonPhase, number> = {
@@ -51,7 +52,9 @@ function detectRound(headline: string | undefined, typeText: string | undefined,
   if (combined.includes('quarter')) return 'Quarter-Final';
   if (combined.includes('round of 16')) return 'Round of 16';
   if (combined.includes('fa cup')) return headline ?? 'FA Cup';
-  if (leagueSlug && leagueSlug !== 'eng.1') return leagueLabel(leagueSlug);
+  if (leagueSlug && leagueSlug !== 'eng.1') {
+    return coreSoccerLeagueLabel(leagueSlug) ?? leagueLabel(leagueSlug);
+  }
   return headline ?? typeText;
 }
 
@@ -59,7 +62,11 @@ function computePriority(phase: SeasonPhase, round: string | undefined, leagueSl
   const base = PHASE_PRIORITY[phase] ?? 100;
   const roundKey = (round ?? '').toLowerCase();
   const roundBoost = Object.entries(ROUND_PRIORITY).find(([k]) => roundKey.includes(k))?.[1] ?? 0;
-  const leagueBoost = leagueSlug === 'uefa.champions' ? 200 : leagueSlug === 'eng.1' ? 50 : 150;
+  const leagueBoost = isCoreSoccerLeague(leagueSlug)
+    ? coreSoccerLeaguePriority(leagueSlug!)
+    : leagueSlug === 'uefa.champions'
+      ? 200
+      : 150;
   const liveBoost = statusState === 'in' ? 50 : statusState === 'pre' ? 20 : 0;
   return base + roundBoost + leagueBoost + liveBoost;
 }
@@ -67,7 +74,7 @@ function computePriority(phase: SeasonPhase, round: string | undefined, leagueSl
 function buildBadge(phase: SeasonPhase, round: string | undefined, leagueSlug?: string): string | undefined {
   if (phase === 'finals') return round?.toUpperCase() ?? 'FINAL';
   if (phase === 'playoffs' && round) return round.toUpperCase();
-  if (leagueSlug && leagueSlug !== 'eng.1') return leagueLabel(leagueSlug).toUpperCase();
+  if (leagueSlug && !isCoreSoccerLeague(leagueSlug)) return leagueLabel(leagueSlug).toUpperCase();
   return undefined;
 }
 
@@ -97,17 +104,18 @@ export function parseSoccerGameContext(
   const badge = buildBadge(phase, round, slug);
   const priority = computePriority(phase, round, slug, statusState);
 
-  if (phase === 'regular' && slug === 'eng.1' && !headline) {
+  if (phase === 'regular' && isCoreSoccerLeague(slug) && !headline) {
     return {
       phase: 'regular',
-      headline: typeText,
+      headline: typeText ?? coreSoccerLeagueLabel(slug ?? '') ?? leagueLabel(slug ?? ''),
+      badge: slug !== 'eng.1' ? coreSoccerLeagueLabel(slug ?? '')?.toUpperCase() : undefined,
       priority,
       broadcast,
       isNationalTv: Boolean(broadcast),
     };
   }
 
-  if (phase === 'regular' && slug !== 'eng.1') {
+  if (phase === 'regular' && slug !== 'eng.1' && !isCoreSoccerLeague(slug)) {
     return {
       phase: 'regular',
       badge,

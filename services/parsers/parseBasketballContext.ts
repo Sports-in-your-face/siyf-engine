@@ -1,5 +1,6 @@
 import type { GameContext, LeagueContext, SeasonPhase } from '../../types';
 import { coerceDisplayString } from '../../utils/coerce';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 
 const PHASE_PRIORITY: Record<SeasonPhase, number> = {
   finals: 1000,
@@ -221,10 +222,12 @@ export function sortGamesByContext<T extends { context?: GameContext; statusStat
 
 export function applyContextToSubtitle(context: GameContext | undefined, fallback?: unknown): string | undefined {
   const headline = coerceDisplayString(context?.headline);
-  if (headline) return headline;
+  if (headline && !isScoreboardNoiseText(headline)) return headline;
   const badge = coerceDisplayString(context?.badge);
-  if (badge) return badge;
-  return coerceDisplayString(fallback) || undefined;
+  if (badge && !isScoreboardNoiseText(badge)) return badge;
+  const fb = coerceDisplayString(fallback);
+  if (fb && !isScoreboardNoiseText(fb)) return fb;
+  return undefined;
 }
 
 export function parseLeagueContext(scoreboardData: any): LeagueContext {

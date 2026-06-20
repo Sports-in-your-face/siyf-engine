@@ -5,6 +5,7 @@ import {
   refineBaseballLeaguePhase,
   sortBaseballGamesByContext,
 } from '../../services/parsers/parseBaseballContext';
+import { guardedEspnTeamSummaryEventId } from '../core/espnSummaryGuard';
 import { cacheKey } from '../core/cache';
 import {
   BASEBALL_LABEL_INDEX,
@@ -28,6 +29,8 @@ import {
   parseEspnMlbRoster,
   parseEspnMlbTeamStats,
   parseEspnMlbTopPerformers,
+  buildEspnMlbPreGameBoxScore,
+  enrichEspnMlbRosterSeasonStats,
 } from '../sources/espnMlbSource';
 import { enrichMlbGamesWithOdds, fetchMlbFanDuelTopPerformers } from '../sources/mlbOddsSources';
 import {
@@ -39,7 +42,9 @@ import {
 } from '../sources/mlbRssEnricher';
 import { enrichMlbTeam, getAllMlbTeams, resolveMlbTeamLogo } from '../sources/teamRegistry';
 import { getSportProfile } from '../../config/sportProfiles';
+import { contextLabelFromHeadline, isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 import { createHistoricalAfterPlayerDetails } from '../sources/historicalSources';
+import { fetchMlbPitchMetricsForGame } from '../sources/mlbStatsApiSource';
 import type { SportEngineConfig } from '../sportConfig';
 
 const log = createEngineLog('baseball-engine');
@@ -80,7 +85,11 @@ export const baseballConfig: SportEngineConfig = {
     teamRoster: espnMlbTeamRoster,
     teamSchedule: espnMlbTeamSchedule,
     detail: {
-      fetchSummary: (game) => espnMlbSummary(game.id, game.statusState),
+      fetchSummary: (game) => {
+        const eventId = guardedEspnTeamSummaryEventId(game);
+        return eventId ? espnMlbSummary(eventId, game.statusState) : Promise.resolve(null);
+      },
+      buildPreGameBoxScore: buildEspnMlbPreGameBoxScore,
       parseBoxScore: parseEspnMlbBoxScore,
       parseTeamStats: parseEspnMlbTeamStats,
       parsePlays: parseEspnMlbPlays,
@@ -98,6 +107,7 @@ export const baseballConfig: SportEngineConfig = {
   },
   buildPlayerDetails: (player, raw) => buildEspnPlayer(player, raw, getSportProfile('BASEBALL')),
   afterPlayerDetails: createHistoricalAfterPlayerDetails('BASEBALL'),
+  enrichTeamRosterStats: enrichEspnMlbRosterSeasonStats,
   playerDetailProviders: [
     {
       id: 'mlbtr_rumors',
@@ -120,19 +130,24 @@ export const baseballConfig: SportEngineConfig = {
             mlbRssCrossCheckPlayoffHint(game.away.name, game.home.name),
           );
           const hint = res.success ? res.data : null;
-          if (!hint?.headline) return game;
+          if (!hint?.headline || isScoreboardNoiseText(hint.headline)) return game;
 
+          const badge = contextLabelFromHeadline(hint.headline);
           const ctx = mergeBaseballContext(game.context, {
             phase: game.context?.phase ?? 'playoffs',
             headline: hint.headline,
-            badge: hint.headline.toUpperCase().slice(0, 40),
+            ...(badge ? { badge } : {}),
             priority: 850,
           });
-          return { ...game, context: ctx, subtitle: hint.headline };
+          return { ...game, context: ctx };
         } catch {
           return game;
         }
       }),
     );
+  },
+  enrichGameDetail: async (detail, summary) => {
+    const pitches = await fetchMlbPitchMetricsForGame(detail, summary);
+    return pitches.length ? { pitches } : {};
   },
 };

@@ -1,8 +1,10 @@
 import type { Game, GameContext, LeagueContext } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 
 const ORG_PRIORITY: Record<string, number> = {
   UFC: 700,
   Boxing: 620,
+  WBC: 620,
   Bellator: 550,
   PFL: 500,
 };
@@ -12,6 +14,7 @@ const ORG_SLUG_BY_LABEL: Record<string, string> = {
   Bellator: 'bellator',
   PFL: 'pfl',
   Boxing: 'boxe',
+  WBC: 'boxe',
 };
 
 /** Resolve ESPN MMA scoreboard slug from a fight game row. */
@@ -86,4 +89,11 @@ export function sortFightsGamesByContext(games: Game[]): Game[] {
     if (pb !== pa) return pb - pa;
     return a.id.localeCompare(b.id);
   });
+}
+
+export function applyFightContextToSubtitle(context: GameContext | undefined, fallback?: string): string | undefined {
+  if (context?.headline && !isScoreboardNoiseText(context.headline)) return context.headline;
+  if (context?.badge && !isScoreboardNoiseText(context.badge)) return context.badge;
+  if (fallback && !isScoreboardNoiseText(fallback)) return fallback;
+  return undefined;
 }

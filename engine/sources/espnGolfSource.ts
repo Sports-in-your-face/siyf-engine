@@ -4,6 +4,7 @@ import {
 } from '../core/cache';
 import { profileForResource } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchEspnCustomScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
 import type { Game, StatItem } from '../../types';
 import { parseGolfEvents, parseGolfCompetitor } from '../../services/parsers/parseGolfEvents';
 import { dedupeGamesById } from '../core/mergeGames';
@@ -35,10 +36,7 @@ async function fetchScoreboard(base: string, label: string, dates?: string): Pro
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${base}/scoreboard?dates=${dates}` : `${base}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, { label, retries: 2, bypassCache });
-    },
+    () => fetchEspnCustomScoreboardSelfPatch(`espn-golf-${label}`, base, dates),
     ['scoreboard', label],
   );
 }

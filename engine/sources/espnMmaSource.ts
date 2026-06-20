@@ -7,6 +7,7 @@ import {
 } from '../core/cache';
 import { profileForResource } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchEspnCustomScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
 import type { Game, StatItem } from '../../types';
 import type { StandingsGroup } from '../core/types';
 import { parseFightEvents } from '../../services/parsers/parseFightEvents';
@@ -178,12 +179,7 @@ export async function espnMmaScoreboard(slug: string): Promise<any | null> {
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${MMA_BASE}/${slug}/scoreboard`, undefined, {
-        label: `espn-mma-${slug}-scoreboard`,
-        retries: 2,
-        bypassCache,
-      }),
+    () => fetchEspnCustomScoreboardSelfPatch(`espn-mma-${slug}`, `${MMA_BASE}/${slug}`),
     ['scoreboard', slug],
   );
 }

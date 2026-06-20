@@ -27,6 +27,7 @@ export interface EspnDetailOps {
     summary: unknown,
     away: Game['away'],
     home: Game['home'],
+    game?: Game,
   ) => Promise<GameDetail['boxScore'] | undefined>;
   parseTeamStats: (summary: unknown) => GameDetail['teamStats'];
   parsePlays: (summary: unknown) => GameDetail['plays'];
@@ -87,6 +88,8 @@ export interface SportEngineConfig {
   standingsProviders?: StandingsProvider[];
   mergeStandingsExtra?: (primary: StandingsGroup[], extra: StandingsGroup[]) => StandingsGroup[];
   enrichRosterExtra?: (teamId: string, roster: Player[]) => Promise<Player[]>;
+  /** Optional league-aware athlete fetch (e.g. WNBA vs NBA on the basketball tab). */
+  resolveAthlete?: (player: Player) => Promise<unknown | null>;
   rosterExtraSourceId?: string;
   searchWithWikidata?: boolean;
   mapScheduleGames?: (events: unknown[], raw: unknown) => Game[];
@@ -98,7 +101,9 @@ export interface SportEngineConfig {
   enrichMissingContext?: (games: Game[], isPostseason: boolean) => Promise<Game[]>;
   getFeaturedGame?: (games: Game[]) => Game | undefined;
   getWnbaLeagueContext?: () => Promise<LeagueContext | null>;
-  enrichGameDetail?: (detail: GameDetail, summary: unknown | null) => Partial<GameDetail>;
+  enrichGameDetail?: (detail: GameDetail, summary: unknown | null) => Partial<GameDetail> | Promise<Partial<GameDetail>>;
+  /** Season stat enrichment for a parsed roster. */
+  enrichTeamRosterStats?: (roster: Player[]) => Promise<Player[]>;
   onInit?: () => void;
 }
 
@@ -114,6 +119,7 @@ export interface SportEngine {
   searchPlayers(query: string): Promise<EngineResult<Player[]>>;
   getStandings(): Promise<EngineResult<StandingsGroup[]>>;
   getTeamRoster(teamId: string): Promise<EngineResult<Player[]>>;
+  enrichTeamRosterStats(roster: Player[]): Promise<EngineResult<Player[]>>;
   getTeamSchedule(teamId: string): Promise<EngineResult<Game[]>>;
   getFeaturedGame?(games: Game[]): Game | undefined;
   getWnbaLeagueContext?(): Promise<LeagueContext | null>;

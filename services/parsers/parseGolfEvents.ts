@@ -1,7 +1,7 @@
 import { getSportProfile } from '../../config/sportProfiles';
 import type { Game, LeaderboardEntry, Team } from '../../types';
 import { enrichGameWithTiming, extractEspnStartCandidates } from '../../utils/gameTime';
-import { parseGolfGameContext } from './parseGolfContext';
+import { parseGolfGameContext, applyGolfContextToSubtitle } from './parseGolfContext';
 import { ParseBatchAccumulator } from '../../engine/adjuster/recordParserBatch';
 
 function parseScore(value: unknown): number | string | null {
@@ -184,7 +184,10 @@ export function parseGolfEvents(events: any[], tour = 'PGA'): Game[] {
       const tournamentName = event.name ?? event.shortName;
       const broadcast = event.broadcasts?.[0]?.names?.join(', ') ?? competition.broadcasts?.[0]?.names?.join(', ');
       const context = parseGolfGameContext(tournamentName, broadcast, statusState);
-      const subtitle = context?.headline ?? [tournamentName, venue].filter(Boolean).join(' · ');
+      const subtitle = applyGolfContextToSubtitle(
+        context,
+        [tournamentName, venue].filter(Boolean).join(' · '),
+      );
 
       games.push({
         id: String(event.id),

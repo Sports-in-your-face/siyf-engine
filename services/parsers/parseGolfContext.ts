@@ -1,4 +1,5 @@
 import type { GameContext, LeagueContext, SeasonPhase } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 
 const MAJORS = [
   { pattern: /masters tournament|the masters/i, label: 'The Masters' },
@@ -129,4 +130,11 @@ export function sortGolfGamesByContext(games: import('../../types').Game[]): imp
     if (pb !== pa) return pb - pa;
     return a.id.localeCompare(b.id);
   });
+}
+
+export function applyGolfContextToSubtitle(context: GameContext | undefined, fallback?: string): string | undefined {
+  if (context?.headline && !isScoreboardNoiseText(context.headline)) return context.headline;
+  if (context?.badge && !isScoreboardNoiseText(context.badge)) return context.badge;
+  if (fallback && !isScoreboardNoiseText(fallback)) return fallback;
+  return undefined;
 }

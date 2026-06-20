@@ -27,6 +27,7 @@ import {
 import { enrichParsedTeamFromCdn } from '../../engine/sources/cdnTeamAssets';
 import { coerceDisplayString, parseDisplayScore, shouldUseNbaTeamCdn } from '../../utils/coerce';
 import { enrichGameWithTiming, extractEspnStartCandidates } from '../../utils/gameTime';
+import { isVoidEspnStatus } from '../../utils/gameStatus';
 import { resolveMmaFighterAssets, resolveTennisAthleteAssets } from '../../utils/fighterAssets';
 import type {
   EspnAthleteEntity,
@@ -92,6 +93,7 @@ function parseStatus(event: EspnGameEvent, sport: SportType, competition?: EspnC
   const profile = getSportProfile(sport);
   const state = resolveStatusState(event, competition);
   const statusSource = competition?.status ?? event.status;
+  const typeName = coerceDisplayString(statusSource?.type?.name);
   const shortDetail = coerceDisplayString(
     resolveEventField(event, 'statusShortDetail')
     ?? statusSource?.type?.shortDetail
@@ -103,6 +105,16 @@ function parseStatus(event: EspnGameEvent, sport: SportType, competition?: EspnC
     ?? statusSource?.displayClock
     ?? detail,
   ) || '—';
+
+  if (isVoidEspnStatus({ typeName, shortDetail, detail })) {
+    const label = shortDetail || detail || 'Cancelled';
+    return {
+      status: label,
+      statusState: 'post' as const,
+      clock: label,
+      voided: true as const,
+    };
+  }
 
   if (state === 'pre') {
     return {
@@ -284,7 +296,8 @@ function buildGame(
   leagueSport?: string,
 ): Game {
   const profile = getSportProfile(sport);
-  const { status, statusState, clock } = parseStatus(event, sport, competition);
+  const parsedStatus = parseStatus(event, sport, competition);
+  const { status, statusState, clock } = parsedStatus;
   const competitors = competition.competitors ?? [];
 
   const topPerformers = profile.showPerformers
@@ -316,10 +329,12 @@ function buildGame(
     ? undefined
     : (competition.type?.abbreviation || event.name);
 
-  const timingResult = enrichGameWithTiming(
-    { statusState, clock },
-    extractEspnStartCandidates(event, competition),
-  );
+  const timingResult = 'voided' in parsedStatus
+    ? { clock, timing: undefined }
+    : enrichGameWithTiming(
+      { statusState, clock },
+      extractEspnStartCandidates(event, competition),
+    );
 
   return {
     id,

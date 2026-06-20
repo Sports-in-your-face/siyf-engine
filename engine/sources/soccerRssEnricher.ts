@@ -29,9 +29,17 @@ interface SoccerRssFeedDefinition {
 
 export const SOCCER_RSS_FEEDS: SoccerRssFeedDefinition[] = [
   { id: 'espn_soccer', name: 'ESPN FC', url: 'https://www.espn.com/espn/rss/soccer/news', role: 'context_headline' },
+  { id: 'cbs_soccer', name: 'CBS Sports Soccer', url: 'https://www.cbssports.com/rss/headlines/soccer/', role: 'context_headline' },
+  { id: 'bbc_epl', name: 'BBC Premier League', url: 'https://feeds.bbci.co.uk/sport/football/premier-league/rss.xml', role: 'context_headline' },
+  { id: 'bbc_la_liga', name: 'BBC La Liga', url: 'https://feeds.bbci.co.uk/sport/football/spanish-la-liga/rss.xml', role: 'context_headline' },
+  { id: 'bbc_bundesliga', name: 'BBC Bundesliga', url: 'https://feeds.bbci.co.uk/sport/football/german-bundesliga/rss.xml', role: 'context_headline' },
+  { id: 'bbc_serie_a', name: 'BBC Serie A', url: 'https://feeds.bbci.co.uk/sport/football/italian-serie-a/rss.xml', role: 'context_headline' },
+  { id: 'bbc_ligue_1', name: 'BBC Ligue 1', url: 'https://feeds.bbci.co.uk/sport/football/french-ligue-one/rss.xml', role: 'context_headline' },
+  { id: 'bbc_mls', name: 'BBC MLS', url: 'https://feeds.bbci.co.uk/sport/football/major-league-soccer/rss.xml', role: 'context_headline' },
   { id: 'bbc_football', name: 'BBC Sport Football', url: 'https://feeds.bbci.co.uk/sport/football/rss.xml', role: 'match_crosscheck' },
   { id: 'transfermarkt', name: 'Transfer News', url: 'https://www.transfermarkt.com/rss/news', role: 'player_rumors' },
   { id: 'guardian_football', name: 'Guardian Football', url: 'https://www.theguardian.com/football/rss', role: 'team_notes' },
+  { id: 'yahoo_soccer', name: 'Yahoo Soccer', url: 'https://sports.yahoo.com/soccer/rss/', role: 'live_badge' },
 ];
 
 async function getFeedItems(feed: SoccerRssFeedDefinition): Promise<RssItem[]> {

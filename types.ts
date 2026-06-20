@@ -19,12 +19,16 @@ export interface Player {
   name: string;
   team: string;
   position: string;
+  /** League tag when sport tab differs (e.g. WNBA under BASKETBALL). */
+  leagueSport?: string;
   headshot?: string;
   stats: StatItem[];
   headshotUrl?: string;
   number?: string;
   height?: string;
   weight?: string;
+  /** Short injury tag from ESPN or RSS (e.g. Out, Questionable). */
+  injuryStatus?: string;
   teamAccent?: string;
   injuryStatus?: string;
 }
@@ -144,6 +148,24 @@ export interface PlayEvent {
   scoringPlay?: boolean;
 }
 
+/** MLB Stats API pitch / batted-ball metrics (live game detail). */
+export interface PitchMetric {
+  id: string;
+  inning: number;
+  half: 'top' | 'bottom';
+  batter?: string;
+  pitcher?: string;
+  pitchType?: string;
+  speed?: number;
+  zone?: number;
+  x?: number;
+  y?: number;
+  launchAngle?: number;
+  exitVelocity?: number;
+  result?: string;
+  description?: string;
+}
+
 export type SeasonPhase = 'preseason' | 'regular' | 'play-in' | 'playoffs' | 'finals';
 
 export interface GameContext {
@@ -258,6 +280,7 @@ export interface Game {
   eventLog?: StatItem[];
   boxScore?: GameBoxScore;
   plays?: PlayEvent[];
+  pitches?: PitchMetric[];
   venue?: string;
   broadcast?: string;
   attendance?: string;

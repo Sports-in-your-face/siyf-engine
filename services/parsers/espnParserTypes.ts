@@ -6,8 +6,10 @@ export interface EspnImageRef {
 
 export interface EspnStatusType {
   state?: 'pre' | 'in' | 'post';
+  name?: string;
   shortDetail?: string;
   detail?: string;
+  completed?: boolean;
 }
 
 export interface EspnStatus {

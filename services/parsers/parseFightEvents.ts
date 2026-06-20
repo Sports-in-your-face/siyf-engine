@@ -3,6 +3,7 @@ import type { Game, Player, StatItem, Team } from '../../types';
 import { enrichGameWithTiming, extractEspnStartCandidates } from '../../utils/gameTime';
 import { pickOrderedStats } from '../../config/sportProfiles';
 import { parseDisplayScore } from '../../utils/coerce';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 import { resolveMmaFighterAssets } from '../../utils/fighterAssets';
 import { ParseBatchAccumulator } from '../../engine/adjuster/recordParserBatch';
 
@@ -127,7 +128,8 @@ export function parseFightEvents(events: any[], org = 'UFC'): Game[] {
         const statusSource = competition?.status ?? event.status;
         const fightResult = parseFightResult(competition.details ?? [], statusSource)
           ?? (statusState === 'post' ? statusSource?.type?.detail : undefined);
-        const subtitle = [cardName, weightClass].filter(Boolean).join(' · ');
+        const subtitleRaw = [cardName, weightClass].filter(Boolean).join(' · ');
+        const subtitle = isScoreboardNoiseText(subtitleRaw) ? undefined : subtitleRaw;
 
         const topPerformers = profile.showPerformers
           ? parseFightLeaders(competition, profile)

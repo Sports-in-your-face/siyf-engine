@@ -30,6 +30,7 @@ import {
 import { noopTeams } from '../sources/individualSportStubs';
 import { enrichTennisGames, tennisRssCrossCheckTournamentHint } from '../sources/tennisRssEnricher';
 import { parseEspnIndividualStandings } from '../core/standingsUtils';
+import { isScoreboardNoiseText, contextLabelFromHeadline } from '../../utils/scoreboardNoise';
 import { getSportProfile } from '../../config/sportProfiles';
 import { createHistoricalAfterPlayerDetails } from '../sources/historicalSources';
 import type { SportEngineConfig } from '../sportConfig';
@@ -116,14 +117,15 @@ export const tennisConfig: SportEngineConfig = {
             tennisRssCrossCheckTournamentHint(game.tournamentName!, game.away.name),
           );
           const hint = res.success ? res.data : null;
-          if (!hint?.headline) return game;
+          if (!hint?.headline || isScoreboardNoiseText(hint.headline)) return game;
 
+          const badge = contextLabelFromHeadline(hint.headline);
           const ctx = mergeTennisContext(game.context, {
             headline: hint.headline,
-            badge: hint.headline.slice(0, 40).toUpperCase(),
+            ...(badge ? { badge } : {}),
             priority: Math.max(game.context?.priority ?? 0, 400),
           });
-          return { ...game, context: ctx, subtitle: hint.headline };
+          return { ...game, context: ctx };
         } catch {
           return game;
         }

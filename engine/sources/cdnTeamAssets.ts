@@ -5,6 +5,7 @@ import type { SportType } from '../../services/api';
 import type { ResolvedTeam } from '../core/types';
 import {
   ensureTeamRegistry,
+  ensureEspnSoccerTeamRegistries,
   enrichMlbTeam,
   enrichNflTeam,
   enrichSoccerTeam,
@@ -74,6 +75,10 @@ export function cdnKeyForSport(sport: string, leagueTag?: string): CdnTeamSport 
 export async function ensureCdnTeamsForSport(sport: string, leagueTag?: string): Promise<CdnTeamSport | undefined> {
   const key = cdnKeyForSport(sport, leagueTag);
   if (!key) return undefined;
+  if (sport === 'SOCCER') {
+    await Promise.all([ensureTeamRegistry(key), ensureEspnSoccerTeamRegistries()]);
+    return key;
+  }
   await ensureTeamRegistry(key);
   return key;
 }

@@ -1,9 +1,10 @@
 /**
  * Global API governor — token bucket + priority queue with age-out promotion.
- * Queues excess requests instead of dropping; P0 (live scoreboard) never starved.
+ * Runs up to GOVERNOR_MAX_CONCURRENT requests in parallel when budget allows.
  */
 
 export const GOVERNOR_HOUR_BUDGET = 3_600;
+export const GOVERNOR_MAX_CONCURRENT = 8;
 export const AGE_OUT_MS = 240_000;
 export const TOKEN_REFILL_PER_SEC = GOVERNOR_HOUR_BUDGET / 3_600;
 
@@ -27,6 +28,7 @@ interface QueueEntry<T> {
 export interface GovernorStats {
   tokens: number;
   queueDepth: number;
+  active: number;
   processed: number;
   queued: number;
   promotions: number;
@@ -36,11 +38,13 @@ export interface GovernorStats {
 let tokens = GOVERNOR_HOUR_BUDGET;
 let lastRefillAt = Date.now();
 const queue: QueueEntry<unknown>[] = [];
-let processing = false;
+let activeCount = 0;
+let draining = false;
 
 let stats: GovernorStats = {
   tokens: GOVERNOR_HOUR_BUDGET,
   queueDepth: 0,
+  active: 0,
   processed: 0,
   queued: 0,
   promotions: 0,
@@ -76,37 +80,64 @@ function sortQueue(): void {
   });
 }
 
+function canStartImmediately(): boolean {
+  return tokens >= 1 && queue.length === 0 && activeCount < GOVERNOR_MAX_CONCURRENT;
+}
+
+function runEntry<T>(entry: QueueEntry<T>): void {
+  tokens -= 1;
+  activeCount += 1;
+  stats.tokens = Math.floor(tokens);
+  stats.active = activeCount;
+
+  void entry
+    .run()
+    .then((result) => {
+      entry.resolve(result);
+      stats.processed += 1;
+    })
+    .catch((err) => {
+      entry.reject(err);
+    })
+    .finally(() => {
+      activeCount -= 1;
+      stats.active = activeCount;
+      stats.queueDepth = queue.length;
+      void drainQueue();
+    });
+}
+
 async function drainQueue(): Promise<void> {
-  if (processing) return;
-  processing = true;
+  if (draining) return;
+  draining = true;
 
   try {
-    while (queue.length) {
+    for (;;) {
       refillTokens();
-      if (tokens < 1) {
-        await new Promise((r) => setTimeout(r, 50));
-        continue;
+
+      let started = false;
+      while (queue.length && activeCount < GOVERNOR_MAX_CONCURRENT && tokens >= 1) {
+        sortQueue();
+        const entry = queue.shift();
+        if (!entry) break;
+        stats.queueDepth = queue.length;
+        runEntry(entry);
+        started = true;
       }
 
-      sortQueue();
-      const entry = queue.shift();
-      if (!entry) break;
-
-      tokens -= 1;
-      stats.tokens = Math.floor(tokens);
-      stats.queueDepth = queue.length;
-
-      try {
-        const result = await entry.run();
-        entry.resolve(result);
-        stats.processed += 1;
-      } catch (err) {
-        entry.reject(err);
+      if (!queue.length && activeCount === 0) break;
+      if (!started && (tokens < 1 || activeCount >= GOVERNOR_MAX_CONCURRENT)) {
+        await new Promise((r) => setTimeout(r, 50));
+      } else if (!started && !queue.length) {
+        break;
       }
     }
   } finally {
-    processing = false;
+    draining = false;
     stats.queueDepth = queue.length;
+    if (queue.length && activeCount < GOVERNOR_MAX_CONCURRENT) {
+      void drainQueue();
+    }
   }
 }
 
@@ -127,16 +158,8 @@ export function governorFetch<T>(
       reject,
     };
 
-    if (tokens >= 1 && entry.priority === 0 && queue.length === 0) {
-      tokens -= 1;
-      stats.tokens = Math.floor(tokens);
-      entry
-        .run()
-        .then((v) => {
-          stats.processed += 1;
-          resolve(v);
-        })
-        .catch(reject);
+    if (canStartImmediately()) {
+      runEntry(entry);
       return;
     }
 
@@ -157,17 +180,19 @@ export function inferPriority(label?: string): GovernorPriority {
 
 export function getGovernorStats(): GovernorStats {
   refillTokens();
-  return { ...stats, queueDepth: queue.length, tokens: Math.floor(tokens) };
+  return { ...stats, queueDepth: queue.length, tokens: Math.floor(tokens), active: activeCount };
 }
 
 export function resetGovernor(): void {
   tokens = GOVERNOR_HOUR_BUDGET;
   lastRefillAt = Date.now();
   queue.length = 0;
-  processing = false;
+  activeCount = 0;
+  draining = false;
   stats = {
     tokens: GOVERNOR_HOUR_BUDGET,
     queueDepth: 0,
+    active: 0,
     processed: 0,
     queued: 0,
     promotions: 0,

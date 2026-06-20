@@ -1,4 +1,4 @@
-import { resolveProxyUrl, getSiyfAuthJwt } from '../../config/siyfApi';
+﻿import { resolveProxyUrl, getSiyfAuthJwt } from '../../config/siyfApi';
 import { createEngineLog } from './engineUtils';
 import { canUsePaidApi, recordPaidApiGatePass, trackPaidApiHourly } from '../adjuster/paidKillSwitch';
 import { detectPaidApi, trackPaidApiUse } from './paidApiTelemetry';
@@ -152,13 +152,13 @@ async function fetchJsonResilientInner<T>(
   };
 
   if (!url) {
-    log('warn', label, 'empty url — skipping fetch');
+    log('warn', label, 'empty url ΓÇö skipping fetch');
     return null;
   }
 
   const resolvedUrl = resolveProxyUrl(url);
   if (!resolvedUrl) {
-    log('warn', label, 'empty resolved url — skipping fetch');
+    log('warn', label, 'empty resolved url ΓÇö skipping fetch');
     return null;
   }
   const hostKey = backoffKey(resolvedUrl);
@@ -191,7 +191,7 @@ async function fetchJsonResilientInner<T>(
           (paidApi === 'odds' || paidApi === 'bdl' || paidApi === 'sgo') &&
           !getSiyfAuthJwt()
         ) {
-          log('warn', label, 'paid API requires auth — skipping');
+          log('warn', label, 'paid API requires auth ΓÇö skipping');
           return null;
         }
         const gate = canUsePaidApi(paidApi);
@@ -214,10 +214,10 @@ async function fetchJsonResilientInner<T>(
       );
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
-          log('warn', label, `returned ${res.status} (auth error) — skipping retries`);
+          log('warn', label, `returned ${res.status} (auth error) ΓÇö skipping retries`);
           return null;
         }
-        // Missing resources won't appear on retry — avoid hammering proxies and console noise.
+        // Missing resources won't appear on retry ΓÇö avoid hammering proxies and console noise.
         if (res.status === 400 || res.status === 404 || res.status === 410) {
           return null;
         }
@@ -242,7 +242,7 @@ async function fetchJsonResilientInner<T>(
       const trimmed = text.trim();
       if (!trimmed) return null;
       if (trimmed.startsWith('<')) {
-        log('warn', label, 'non-JSON response — skipping');
+        log('warn', label, 'non-JSON response ΓÇö skipping');
         return null;
       }
       try {

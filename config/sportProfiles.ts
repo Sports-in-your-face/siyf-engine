@@ -53,6 +53,7 @@ export interface SportProfile {
   showOdds: boolean;
   showSeries: boolean;
   showBoxScore: boolean;
+  showAdvancedMetrics?: boolean;
   showPlayerPhysical: boolean;
   showPlayerCareerTables: boolean;
   supportsPlayerProfile: boolean;
@@ -292,6 +293,7 @@ export const SPORT_PROFILES: Record<SportType, SportProfile> = {
     showOdds: true,
     showSeries: true,
     showBoxScore: true,
+    showAdvancedMetrics: true,
     showPlayerPhysical: true,
     showPlayerCareerTables: true,
     supportsPlayerProfile: true,
@@ -537,6 +539,25 @@ export function hasSportPageSection(
 ): boolean {
   const sections = getSportProfile(sport).tabSections[tabId];
   return sections?.includes(sectionId) ?? false;
+}
+
+/** Player-detail profile — WNBA uses ESPN basketball/wnba paths; soccer uses league slug paths. */
+export function getPlayerProfileForLeague(sport: SportType, leagueSport?: string): SportProfile {
+  if (sport === 'BASKETBALL' && leagueSport === 'WNBA') {
+    return {
+      ...SPORT_PROFILES.BASKETBALL,
+      athletePath: 'basketball/wnba',
+      heroStatLabels: ['PPG', 'RPG', 'APG', 'PTS', 'REB', 'AST', 'FG%', '3P%', 'FT%', 'MIN', 'STL', 'BLK'],
+    };
+  }
+  if (sport === 'SOCCER' && leagueSport) {
+    const slug = leagueSport.startsWith('soccer/') ? leagueSport.slice('soccer/'.length) : leagueSport;
+    return {
+      ...SPORT_PROFILES.SOCCER,
+      athletePath: `soccer/${slug}`,
+    };
+  }
+  return SPORT_PROFILES[sport];
 }
 
 export function getBookmarkableSports(sports: SportType[]): SportType[] {

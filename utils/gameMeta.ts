@@ -1,4 +1,5 @@
 import type { Game } from '../types';
+import { isScoreboardNoiseText } from './scoreboardNoise';
 
 export interface GameOddsDisplay {
   spread?: string;
@@ -22,7 +23,7 @@ function isSourceAttributionBadge(badge?: string): boolean {
 
 export function getSeriesSummary(game: Game): string | undefined {
   const summary = game.context?.seriesSummary?.trim();
-  if (!summary || isOddsSpread(summary)) return undefined;
+  if (!summary || isOddsSpread(summary) || isScoreboardNoiseText(summary)) return undefined;
   return summary;
 }
 
@@ -62,7 +63,9 @@ export function specialGameLabel(game: Game): string | undefined {
 
 /** Primary context badge for cards and detail headers. */
 export function contextBadge(game: Game): string | undefined {
-  return specialGameLabel(game);
+  const label = specialGameLabel(game);
+  if (label && isScoreboardNoiseText(label)) return undefined;
+  return label;
 }
 
 export function isNationalTvGame(game: Game): boolean {

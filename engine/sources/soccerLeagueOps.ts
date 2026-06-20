@@ -7,7 +7,7 @@ import {
   espnSoccerTeamRoster,
   espnSoccerTeamSchedule,
 } from './espnSoccerSource';
-import { ALL_SOCCER_LEAGUE_SLUGS } from './soccerLeagues';
+import { getActiveSoccerLeagueSlugs } from './soccerLeagues';
 import { leagueLabel } from './teamRegistry';
 
 const log = createEngineLog('soccer-league-ops');
@@ -18,9 +18,10 @@ interface EspnSearchHit {
 }
 
 export async function resolveSoccerAthlete(playerId: string, preferredLeague?: string): Promise<unknown | null> {
+  const activeSlugs = getActiveSoccerLeagueSlugs();
   const slugs = preferredLeague
-    ? [preferredLeague, ...ALL_SOCCER_LEAGUE_SLUGS.filter((s) => s !== preferredLeague)]
-    : ALL_SOCCER_LEAGUE_SLUGS;
+    ? [preferredLeague, ...activeSlugs.filter((s) => s !== preferredLeague)]
+    : activeSlugs;
 
   for (const slug of slugs) {
     const data = await espnSoccerAthlete(playerId, slug);
@@ -34,7 +35,7 @@ export async function searchSoccerAthletesAllLeagues(query: string): Promise<unk
   const merged: unknown[] = [];
 
   await Promise.all(
-    ALL_SOCCER_LEAGUE_SLUGS.map(async (slug) => {
+    getActiveSoccerLeagueSlugs().map(async (slug) => {
       const results = await espnSoccerSearchAthletes(query, slug);
       for (const item of results) {
         const hit = item as EspnSearchHit;
@@ -53,7 +54,7 @@ export async function fetchSoccerStandingsAllLeagues(): Promise<StandingsGroup[]
   const groups: StandingsGroup[] = [];
 
   await Promise.all(
-    ALL_SOCCER_LEAGUE_SLUGS.map(async (slug) => {
+    getActiveSoccerLeagueSlugs().map(async (slug) => {
       const standings = await safeTryAsync(
         log,
         'fetchSoccerStandings',
@@ -78,7 +79,7 @@ export async function fetchSoccerStandingsAllLeagues(): Promise<StandingsGroup[]
 }
 
 export async function resolveSoccerTeamRoster(teamId: string): Promise<unknown | null> {
-  for (const slug of ALL_SOCCER_LEAGUE_SLUGS) {
+  for (const slug of getActiveSoccerLeagueSlugs()) {
     const data = await espnSoccerTeamRoster(teamId, slug);
     if (data) return data;
   }
@@ -86,7 +87,7 @@ export async function resolveSoccerTeamRoster(teamId: string): Promise<unknown |
 }
 
 export async function resolveSoccerTeamSchedule(teamId: string): Promise<unknown | null> {
-  for (const slug of ALL_SOCCER_LEAGUE_SLUGS) {
+  for (const slug of getActiveSoccerLeagueSlugs()) {
     const data = await espnSoccerTeamSchedule(teamId, slug);
     if (data) return data;
   }

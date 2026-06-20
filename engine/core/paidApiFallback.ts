@@ -36,7 +36,7 @@ export async function tryActionNetworkScores(
       if (!anList.length) return null;
 
       return {
-        games: mergeScoreboardGames(games, anList),
+        games: mergeScoreboardGames(games, anList, sport),
         sources: sources.includes('action-network') ? sources : [...sources, 'action-network'],
       };
     },

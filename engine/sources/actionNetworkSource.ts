@@ -3,10 +3,10 @@ import { profileForResource } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
 import { filterGamesNeedingOdds, gameHasOddsContext } from '../core/paidApiPolicy';
 import type { Game, GameContext } from '../../types';
-import { enrichTeam, resolveTeamLogo } from './teamRegistry';
+import { enrichTeamForSport, resolveTeamLogoForSport } from './teamRegistry';
 import { enrichGameWithTiming } from '../../utils/gameTime';
 import { siyfApiUrl } from '../../config/siyfApi';
-import { gameMatchKey, mergeScoreboardGames } from '../core/mergeGames';
+import { gameMatchKey, inferEngineSportFromGame, mergeScoreboardGames } from '../core/mergeGames';
 import { enrichGameContext } from '../core/mergePayload';
 import type { EngineSport } from '../sportConfig';
 
@@ -170,8 +170,8 @@ export function mapActionNetworkGames(raw: AnScoreboardResponse, league: string)
 
     const parsed = parseAnStatus(g.real_status ?? g.status, g.status_display);
     const scores = resolveScores(g, league);
-    const awayReg = enrichTeam(awayRaw.abbr, { name: awayRaw.full_name });
-    const homeReg = enrichTeam(homeRaw.abbr, { name: homeRaw.full_name });
+    const awayReg = enrichTeamForSport(engineSport, awayRaw.abbr, { name: awayRaw.full_name });
+    const homeReg = enrichTeamForSport(engineSport, homeRaw.abbr, { name: homeRaw.full_name });
 
     const base: Game = {
       id: `an-${g.id}`,
@@ -183,7 +183,7 @@ export function mapActionNetworkGames(raw: AnScoreboardResponse, league: string)
         name: awayReg.name || awayRaw.full_name,
         abbr: awayReg.abbr,
         score: scores.awayScore,
-        logo: resolveTeamLogo(awayReg.abbr, awayRaw.logo ?? awayReg.logo),
+        logo: resolveTeamLogoForSport(engineSport, awayReg.abbr, awayRaw.logo ?? awayReg.logo),
         color: awayRaw.primary_color ?? awayReg.color,
         alternateColor: awayRaw.secondary_color ?? awayReg.alternateColor,
         linescores: scores.awayLines,
@@ -192,7 +192,7 @@ export function mapActionNetworkGames(raw: AnScoreboardResponse, league: string)
         name: homeReg.name || homeRaw.full_name,
         abbr: homeReg.abbr,
         score: scores.homeScore,
-        logo: resolveTeamLogo(homeReg.abbr, homeRaw.logo ?? homeReg.logo),
+        logo: resolveTeamLogoForSport(engineSport, homeReg.abbr, homeRaw.logo ?? homeReg.logo),
         color: homeRaw.primary_color ?? homeReg.color,
         alternateColor: homeRaw.secondary_color ?? homeReg.alternateColor,
         linescores: scores.homeLines,
@@ -237,12 +237,13 @@ export async function fetchActionNetworkGames(sport: EngineSport): Promise<AnGam
 }
 
 export function matchActionNetworkGame(anGames: AnGame[], game: Game): AnGame | undefined {
-  const key = gameMatchKey(game.away.abbr, game.home.abbr);
+  const sport = inferEngineSportFromGame(game) ?? 'BASKETBALL';
+  const key = gameMatchKey(game.away.abbr, game.home.abbr, sport);
   return anGames.find((g) => {
     const away = teamById(g.teams, g.away_team_id);
     const home = teamById(g.teams, g.home_team_id);
     if (!away || !home) return false;
-    return gameMatchKey(away.abbr, home.abbr) === key;
+    return gameMatchKey(away.abbr, home.abbr, sport) === key;
   });
 }
 
@@ -324,5 +325,5 @@ export async function mergeActionNetworkScoreboard(
   const anList = mapActionNetworkGames(raw ?? {}, league);
   if (!anList.length) return games;
 
-  return mergeScoreboardGames(games, anList);
+  return mergeScoreboardGames(games, anList, sport);
 }

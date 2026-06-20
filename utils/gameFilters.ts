@@ -1,4 +1,5 @@
 import type { Game } from '../types';
+import { shouldHideFromScoreboard } from './gameStatus';
 
 /** Drop finished/unknown games older than this from scoreboard feeds. */
 export const MAX_FEED_AGE_MS = 2 * 86_400_000;
@@ -32,5 +33,5 @@ export function isGameWithinFeedWindow(game: Game, now = new Date()): boolean {
 }
 
 export function filterRecentGames(games: Game[], now = new Date()): Game[] {
-  return games.filter((game) => isGameWithinFeedWindow(game, now));
+  return games.filter((game) => isGameWithinFeedWindow(game, now) && !shouldHideFromScoreboard(game));
 }

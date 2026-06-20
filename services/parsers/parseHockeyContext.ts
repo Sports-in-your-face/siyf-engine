@@ -1,4 +1,5 @@
 import type { GameContext, LeagueContext, SeasonPhase } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 
 const PHASE_PRIORITY: Record<SeasonPhase, number> = {
   finals: 1000,
@@ -178,9 +179,10 @@ export function sortHockeyGamesByContext<T extends { context?: GameContext; stat
 }
 
 export function applyHockeyContextToSubtitle(context: GameContext | undefined, fallback?: string): string | undefined {
-  if (context?.headline) return context.headline;
-  if (context?.badge) return context.badge;
-  return fallback;
+  if (context?.headline && !isScoreboardNoiseText(context.headline)) return context.headline;
+  if (context?.badge && !isScoreboardNoiseText(context.badge)) return context.badge;
+  if (fallback && !isScoreboardNoiseText(fallback)) return fallback;
+  return undefined;
 }
 
 export function parseHockeyLeagueContext(scoreboardData: any): LeagueContext {

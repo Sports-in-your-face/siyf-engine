@@ -149,6 +149,24 @@ export {
 } from './paidKillSwitch';
 
 export {
+  fetchWithSelfPatch,
+  espnScoreboardEndpointChain,
+  yahooScoreboardEndpointChain,
+  probeEspnScoreboard,
+  probeYahooScoreboard,
+  extractEspnEventsFromRaw,
+  extractYahooScoreboardRoot,
+  getSourcePatchHistory,
+  resetSourcePatchTelemetry,
+  getPatchStoreSnapshot,
+  resetPatchStore,
+} from './sourcePatch';
+export type { SourcePatchEvent, SelfPatchFetchResult, EndpointCandidate } from './sourcePatch';
+
+import './sourcePatch';
+import './telemetry';
+
+export {
   CHAOS_SCENARIOS,
   runChaosScenario,
   runAllChaosScenarios,

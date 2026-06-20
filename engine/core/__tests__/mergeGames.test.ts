@@ -90,7 +90,7 @@ describe('mergeScoreboardGames', () => {
       clock: 'Q4 1:12',
     });
 
-    const merged = mergeScoreboardGames([espn], [bdl]);
+    const merged = mergeScoreboardGames([espn], [bdl], 'BASKETBALL');
     expect(merged).toHaveLength(1);
     expect(merged[0].away.score).toBe(100);
     expect(merged[0].clock).toBe('Q4 1:12');
@@ -99,6 +99,19 @@ describe('mergeScoreboardGames', () => {
   it('matches games by normalized abbr', () => {
     expect(gameMatchKey('LAL', 'BOS')).toBe('LAL@BOS');
     expect(gameMatchKey('lal', 'bos')).toBe('LAL@BOS');
+  });
+
+  it('keeps MLB logos when merging baseball scoreboards', () => {
+    const espn = makeGame({
+      id: 'mlb-1',
+      sport: 'BASEBALL',
+      away: makeTeam({ name: 'Royals', abbr: 'KC', logo: 'https://espn.com/kc-mlb.png' }),
+      home: makeTeam({ name: 'Nationals', abbr: 'WSH', logo: 'https://espn.com/nationals-mlb.png' }),
+      statusState: 'pre',
+    });
+    const merged = mergeScoreboardGames([espn], [], 'BASEBALL');
+    expect(merged[0].home.logo).toContain('nationals-mlb');
+    expect(merged[0].home.abbr).toBe('WSH');
   });
 });
 
