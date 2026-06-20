@@ -3,11 +3,12 @@ import {
   cachedFetch,
 } from '../core/cache';
 import { profileForResource } from '../core/cacheTiers';
-import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchJsonResilient, sleep } from '../core/resilientFetch';
+import { fetchEspnCustomScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
+import { getEngineRuntimeMode } from '../runtimeProfile';
 import type { Game, StatItem } from '../../types';
 import { parseTennisEvents } from '../../services/parsers/parseTennisEvents';
 import { dedupeGamesById } from '../core/mergeGames';
-import { espnCoreSearchAthletes } from './espnCoreSearch';
 import { resolveTennisAthleteAssets, isCountryFlagUrl } from '../../utils/fighterAssets';
 import type { Team } from '../../types';
 
@@ -32,36 +33,42 @@ async function fetchTennisAthleteFrom(commonBase: string, playerId: string, labe
   return { bio, overview, stats };
 }
 
-async function fetchTennisScoreboard(base: string, label: string, dates?: string): Promise<any | null> {
-  const key = cacheKey('espn-tennis', label, dates ?? 'today');
+async function fetchTennisScoreboard(base: string, label: string): Promise<any | null> {
+  const key = cacheKey('espn-tennis', label, 'today');
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${base}/scoreboard?dates=${dates}` : `${base}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, {
-        label: `espn-tennis-${label}${dates ? `-${dates}` : ''}`,
-        retries: 2,
-        bypassCache,
-      });
-    },
+    () => fetchEspnCustomScoreboardSelfPatch(`espn-tennis-${label}`, base),
     ['scoreboard', label],
   );
 }
 
-export async function espnAtpScoreboard(dates?: string): Promise<any | null> {
-  return fetchTennisScoreboard(ATP_BASE, 'atp', dates);
+export async function espnAtpScoreboard(): Promise<any | null> {
+  return fetchTennisScoreboard(ATP_BASE, 'atp');
 }
 
-export async function espnWtaScoreboard(dates?: string): Promise<any | null> {
-  return fetchTennisScoreboard(WTA_BASE, 'wta', dates);
+export async function espnWtaScoreboard(): Promise<any | null> {
+  return fetchTennisScoreboard(WTA_BASE, 'wta');
+}
+
+const WTA_EXTENSION_TIMEOUT_MS = 4_000;
+
+async function fetchWtaScoreboardForMerge(): Promise<any | null> {
+  const wtaFetch = espnWtaScoreboard();
+  if (getEngineRuntimeMode() !== 'extension') return wtaFetch;
+  return Promise.race([
+    wtaFetch,
+    sleep(WTA_EXTENSION_TIMEOUT_MS).then(() => null),
+  ]);
 }
 
 export async function espnTennisMergedScoreboard(): Promise<{ events: any[]; atpEvents?: any[]; wtaEvents?: any[]; leagues?: unknown } | null> {
-  const [atp, wta] = await Promise.all([
+  const [atpResult, wtaResult] = await Promise.allSettled([
     espnAtpScoreboard(),
-    espnWtaScoreboard(),
+    fetchWtaScoreboardForMerge(),
   ]);
+  const atp = atpResult.status === 'fulfilled' ? atpResult.value : null;
+  const wta = wtaResult.status === 'fulfilled' ? wtaResult.value : null;
   const atpEvents = atp?.events ?? [];
   const wtaEvents = wta?.events ?? [];
   if (!atpEvents.length && !wtaEvents.length) return null;
@@ -140,12 +147,7 @@ export async function espnTennisSearchAthletes(query: string): Promise<any[]> {
           merged.push(item);
         }
       }
-      if (merged.length) return merged;
-
-      return espnCoreSearchAthletes(query, [
-        { sport: 'tennis', league: 'atp', label: 'atp' },
-        { sport: 'tennis', league: 'wta', label: 'wta' },
-      ]);
+      return merged;
     },
     ['search'],
   );

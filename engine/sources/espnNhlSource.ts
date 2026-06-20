@@ -8,6 +8,8 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchEspnScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
+import { isEspnNumericEventId } from '../core/espnSummaryGuard';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -17,10 +19,9 @@ import type {
   Team,
 } from '../core/types';
 import { enrichNhlTeam, resolveNhlTeamLogo } from './teamRegistry';
-import { espnSearchAthletesWithFallback } from './espnCoreSearch';
-import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
-import { parseEspnRosterEntries } from './espnRosterUtils';
-import { parseEspnStatLeaders } from './espnStatLeaders';
+import { parseEspnRosterResponse } from './espnRoster';
+import { batchFetchPlayerStats, mergeRosterStats } from '../core/rosterSeasonStats';
+import type { Player } from '../../types';
 
 const BASE = '/api/espn/apis/site/v2/sports/hockey/nhl';
 const COMMON = '/api/espn/apis/common/v3/sports/hockey/nhl';
@@ -31,10 +32,7 @@ export async function espnNhlScoreboard(dates?: string): Promise<any | null> {
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${BASE}/scoreboard?dates=${dates}` : `${BASE}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, { label: 'espn-nhl-scoreboard', retries: 2, bypassCache });
-    },
+    () => fetchEspnScoreboardSelfPatch('HOCKEY', dates),
     ['scoreboard', 'nhl'],
   );
 }
@@ -51,6 +49,7 @@ export async function espnNhlTeams(): Promise<any | null> {
 }
 
 export async function espnNhlSummary(eventId: string, gameState?: GameLiveState): Promise<any | null> {
+  if (!isEspnNumericEventId(eventId)) return null;
   const key = cacheKey('espn-nhl', 'summary', eventId);
   return cachedFetch(
     key,
@@ -99,14 +98,14 @@ export async function espnNhlStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data = await fetchEspnStandingsPayload(
-    `${BASE}/standings`,
-    STANDINGS_ALT,
-    'espn-nhl-standings',
-  );
+  const data =
+    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-nhl-standings' })) ??
+    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-nhl-standings-alt' }));
+
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = extractStandingsChildren(data);
+  const children = data.children ?? data.standings?.children ?? [];
+  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Division',
@@ -126,22 +125,11 @@ export async function espnNhlStandings(): Promise<StandingsGroup[]> {
         alternateColor: team.alternateColor ? `#${team.alternateColor}` : undefined,
       });
 
-      const wins = parseInt(statVal('wins'), 10) || 0;
-      const otl = parseInt(statVal('otLosses') || statVal('OTL') || statVal('overtimeLosses'), 10) || 0;
-      const regLosses = parseInt(statVal('regLosses') || statVal('regulationLosses'), 10);
-      const totalLosses = parseInt(statVal('losses'), 10) || 0;
-      // ESPN `losses` includes OTL; W-L-OTL display needs regulation losses only.
-      const losses = regLosses > 0 ? regLosses : Math.max(0, totalLosses - otl);
-      const rawPts = parseInt(statVal('points') || statVal('pts'), 10);
-      const points = rawPts > 0 ? rawPts : wins * 2 + otl;
-
       return {
         rank: idx + 1,
         team: resolved,
-        wins,
-        losses,
-        otl,
-        points,
+        wins: parseInt(statVal('wins'), 10) || 0,
+        losses: parseInt(statVal('losses'), 10) || 0,
         winPct: statVal('winPercent') || statVal('winPct') || '.000',
         streak: statVal('streak') || undefined,
         gamesBack: statVal('gamesBehind') || statVal('gamesBack') || undefined,
@@ -174,16 +162,17 @@ export async function espnNhlAthlete(id: string): Promise<any | null> {
 
 export async function espnNhlSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-nhl', 'search', query.toLowerCase());
-  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async () =>
-      espnSearchAthletesWithFallback(
-        query,
-        { sport: 'hockey', league: 'nhl', label: 'nhl' },
-        `${COMMON}/athletes?search=${encoded}&limit=10`,
-      ),
+    async ({ bypassCache }) => {
+      const data = await fetchJsonResilient<any>(
+        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
+        undefined,
+        { label: 'espn-nhl-athlete-search', bypassCache },
+      );
+      return data?.items ?? data?.athletes ?? [];
+    },
     ['search'],
   );
   return result ?? [];
@@ -300,7 +289,7 @@ export function parseEspnNhlPlays(summary: any): PlayEvent[] {
 
   const scoringIds = new Set(scoringPlays.map((p: any) => String(p.id ?? '')));
 
-  return rawPlays.slice(0, 150).map((p: any, idx: number) => ({
+  return rawPlays.slice(0, 40).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `P${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -388,7 +377,10 @@ export function parseEspnNhlTeamsList(data: any) {
 }
 
 export function parseEspnNhlRoster(data: any) {
-  return parseEspnRosterEntries(data);
+  return parseEspnRosterResponse(data).map((p) => ({
+    ...p,
+    stats: p.stats.length ? p.stats : undefined,
+  }));
 }
 
 function collectFeaturedPlayerIds(summary: any, teamId: string): string[] {
@@ -439,25 +431,18 @@ function parseNhlSeasonAverages(statsRaw: any): StatItem[] {
 }
 
 async function fetchNhlSeasonAveragesForPlayers(playerIds: string[]): Promise<Map<string, StatItem[]>> {
-  const result = new Map<string, StatItem[]>();
-  const BATCH = 4;
+  return batchFetchPlayerStats(playerIds, async (id) => {
+    const data = await espnNhlAthlete(id);
+    const avgs = parseNhlSeasonAverages(data?.stats);
+    return avgs.length ? avgs : null;
+  });
+}
 
-  for (let i = 0; i < playerIds.length; i += BATCH) {
-    const batch = playerIds.slice(i, i + BATCH);
-    await Promise.all(
-      batch.map(async (id) => {
-        try {
-          const data = await espnNhlAthlete(id);
-          const avgs = parseNhlSeasonAverages(data?.stats);
-          if (avgs.length) result.set(id, avgs);
-        } catch {
-          /* skip failed athlete fetch */
-        }
-      }),
-    );
-  }
-
-  return result;
+export async function enrichEspnNhlRosterSeasonStats(roster: Player[]): Promise<Player[]> {
+  const needsStats = roster.filter((p) => !p.stats.length);
+  if (!needsStats.length) return roster;
+  const statsById = await fetchNhlSeasonAveragesForPlayers(needsStats.map((p) => p.id));
+  return mergeRosterStats(roster, statsById);
 }
 
 export async function buildEspnNhlPreGameBoxScore(
@@ -474,30 +459,18 @@ export async function buildEspnNhlPreGameBoxScore(
     if (!teamId) return null;
 
     const featuredIds = collectFeaturedPlayerIds(summary, teamId);
-    const [rosterData, seasonAvgs] = await Promise.all([
-      espnNhlTeamRoster(teamId),
-      fetchNhlSeasonAveragesForPlayers(featuredIds),
-    ]);
-
+    const rosterData = await espnNhlTeamRoster(teamId);
     const roster = parseEspnNhlRoster(rosterData);
-    if (!roster.length && !featuredIds.length) return null;
+    if (!roster.length) return null;
 
-    const rosterById = new Map(roster.map((p: { id: string }) => [p.id, p]));
-    const orderedIds = featuredIds.length
-      ? featuredIds
-      : roster.slice(0, 8).map((p: { id: string }) => p.id);
+    const seasonAvgs = await fetchNhlSeasonAveragesForPlayers(roster.map((p) => p.id));
+    const featuredSet = new Set(featuredIds);
 
-    const players: BoxScorePlayer[] = orderedIds
-      .map((id: string, index: number) => {
-        const base = rosterById.get(id);
-        if (!base) return null;
-        return {
-          ...base,
-          starter: index < 6,
-          stats: seasonAvgs.get(id) ?? parseNhlSeasonAverages(null),
-        };
-      })
-      .filter(Boolean) as BoxScorePlayer[];
+    const players: BoxScorePlayer[] = roster.map((base, index) => ({
+      ...base,
+      starter: featuredSet.has(base.id) ? featuredIds.indexOf(base.id) < 6 : index < 6,
+      stats: seasonAvgs.get(base.id) ?? parseNhlSeasonAverages(null),
+    }));
 
     if (!players.length) return null;
 
@@ -519,51 +492,4 @@ export async function buildEspnNhlPreGameBoxScore(
     away: away ?? { team: awayTeam, players: [], totals: [] },
     home: home ?? { team: homeTeam, players: [], totals: [] },
   };
-}
-
-const NHL_STAT_ICONS: Record<string, string> = {
-  points: 'ph-star',
-  goals: 'ph-target',
-  assists: 'ph-handshake',
-  savePct: 'ph-shield-check',
-  plusMinus: 'ph-plus-minus',
-  penaltyMinutes: 'ph-warning',
-};
-
-export async function espnNhlLeaders(): Promise<unknown | null> {
-  const key = cacheKey('espn-nhl', 'leaders');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/hockey/nhl/leaders?limit=5', undefined, {
-        label: 'espn-nhl-leaders',
-        retries: 2,
-        bypassCache,
-      }),
-    ['standings', 'nhl', 'leaders'],
-  );
-}
-
-export function parseEspnNhlStatLeaders(data: unknown) {
-  const nhlLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nhl/500/${abbr.toLowerCase()}.png`;
-  return parseEspnStatLeaders(data, {
-    categories: [
-      { key: 'points', icon: NHL_STAT_ICONS.points },
-      { key: 'goals', icon: NHL_STAT_ICONS.goals },
-      { key: 'assists', icon: NHL_STAT_ICONS.assists },
-      { key: 'savePct', icon: NHL_STAT_ICONS.savePct, label: 'Save %' },
-      { key: 'plusMinus', icon: NHL_STAT_ICONS.plusMinus, label: 'Plus/Minus' },
-      { key: 'penaltyMinutes', icon: NHL_STAT_ICONS.penaltyMinutes, label: 'PIM' },
-    ],
-    teamLogo: nhlLogo,
-    formatValue: (leader, categoryKey) => {
-      const raw = leader.value;
-      if (raw == null || raw === '') return leader.displayValue ?? '—';
-      const num = Number(raw);
-      if (Number.isNaN(num)) return String(raw);
-      if (categoryKey === 'savePct') return num.toFixed(3).replace(/^0/, '');
-      return String(leader.displayValue ?? raw);
-    },
-  });
 }

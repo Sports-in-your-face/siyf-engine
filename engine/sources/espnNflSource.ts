@@ -8,6 +8,8 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchEspnScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
+import { isEspnNumericEventId } from '../core/espnSummaryGuard';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -17,9 +19,9 @@ import type {
   Team,
 } from '../core/types';
 import { enrichNflTeam, resolveNflTeamLogo } from './teamRegistry';
-import { espnSearchAthletesWithFallback } from './espnCoreSearch';
-import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
-import { parseEspnRosterEntries } from './espnRosterUtils';
+import { parseEspnRosterResponse } from './espnRoster';
+import { batchFetchPlayerStats, mergeRosterStats } from '../core/rosterSeasonStats';
+import type { Player } from '../../types';
 
 const BASE = '/api/espn/apis/site/v2/sports/football/nfl';
 const COMMON = '/api/espn/apis/common/v3/sports/football/nfl';
@@ -30,32 +32,8 @@ export async function espnNflScoreboard(dates?: string): Promise<any | null> {
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${BASE}/scoreboard?dates=${dates}` : `${BASE}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, { label: 'espn-nfl-scoreboard', retries: 2, bypassCache });
-    },
+    () => fetchEspnScoreboardSelfPatch('FOOTBALL', dates),
     ['scoreboard', 'nfl'],
-  );
-}
-
-/** Full NFL week schedule via scoreboard (regular season default). */
-export async function espnNflWeekScoreboard(
-  week: number,
-  year?: number,
-  seasonType = 2,
-): Promise<any | null> {
-  const yr = year ?? new Date().getFullYear();
-  const key = cacheKey('espn-nfl', 'scoreboard', `week-${week}`, String(yr), String(seasonType));
-  return cachedFetch(
-    key,
-    profileForResource('schedule'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(
-        `${BASE}/scoreboard?seasontype=${seasonType}&week=${week}&year=${yr}`,
-        undefined,
-        { label: `espn-nfl-scoreboard-week-${week}`, retries: 2, bypassCache },
-      ),
-    ['schedule', 'nfl', `week:${week}`],
   );
 }
 
@@ -71,6 +49,7 @@ export async function espnNflTeams(): Promise<any | null> {
 }
 
 export async function espnNflSummary(eventId: string, gameState?: GameLiveState): Promise<any | null> {
+  if (!isEspnNumericEventId(eventId)) return null;
   const key = cacheKey('espn-nfl', 'summary', eventId);
   return cachedFetch(
     key,
@@ -119,14 +98,14 @@ export async function espnNflStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data = await fetchEspnStandingsPayload(
-    `${BASE}/standings`,
-    STANDINGS_ALT,
-    'espn-nfl-standings',
-  );
+  const data =
+    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-nfl-standings' })) ??
+    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-nfl-standings-alt' }));
+
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = extractStandingsChildren(data);
+  const children = data.children ?? data.standings?.children ?? [];
+  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Conference',
@@ -169,27 +148,11 @@ export async function espnNflAthlete(id: string): Promise<any | null> {
     profileForResource('athlete'),
     async ({ bypassCache }) => {
       const opts = { bypassCache };
-      const fetchStats = () =>
-        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, {
-          label: 'espn-nfl-athlete-stats',
-          ...opts,
-        }).catch(() => null);
-
       const [bio, overview, stats] = await Promise.all([
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}`, undefined, { label: 'espn-nfl-athlete-bio', ...opts }),
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}/overview`, undefined, { label: 'espn-nfl-athlete-overview', ...opts }),
-        fetchStats(),
+        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, { label: 'espn-nfl-athlete-stats', ...opts }),
       ]);
-
-      if (!bio && !overview) {
-        const siteV2 = await fetchJsonResilient<any>(
-          `${BASE}/athletes/${id}`,
-          undefined,
-          { label: 'espn-nfl-athlete-site-v2', ...opts },
-        );
-        if (siteV2) return { bio: siteV2, overview: siteV2, stats: stats ?? null };
-      }
-
       if (!bio && !overview && !stats) return null;
       return { bio, overview, stats };
     },
@@ -199,16 +162,17 @@ export async function espnNflAthlete(id: string): Promise<any | null> {
 
 export async function espnNflSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-nfl', 'search', query.toLowerCase());
-  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async ({ bypassCache }) =>
-      espnSearchAthletesWithFallback(
-        query,
-        { sport: 'football', league: 'nfl', label: 'nfl' },
-        `${COMMON}/athletes?search=${encoded}&limit=10`,
-      ),
+    async ({ bypassCache }) => {
+      const data = await fetchJsonResilient<any>(
+        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
+        undefined,
+        { label: 'espn-nfl-athlete-search', bypassCache },
+      );
+      return data?.items ?? data?.athletes ?? [];
+    },
     ['search'],
   );
   return result ?? [];
@@ -314,19 +278,24 @@ export function parseEspnNflTeamStats(summary: any): { away: StatItem[]; home: S
 }
 
 export function parseEspnNflPlays(summary: any): PlayEvent[] {
-  const drives = [
-    ...(summary?.drives?.previous ?? []),
-    ...(summary?.drives?.current ? [summary.drives.current] : []),
-  ];
-  const allFromDrives = drives.flatMap((d: any) => d.plays ?? []);
+  const drives = summary?.drives?.previous ?? [];
   const scoringPlays = summary?.scoringPlays ?? [];
-  const rawPlays = allFromDrives.length
-    ? allFromDrives
-    : (scoringPlays.length ? scoringPlays : summary?.plays ?? []);
+  const rawPlays = scoringPlays.length ? scoringPlays : drives.flatMap((d: any) => d.plays ?? []);
 
-  if (!Array.isArray(rawPlays) || !rawPlays.length) return [];
+  if (!Array.isArray(rawPlays) || !rawPlays.length) {
+    const plays = summary?.plays ?? [];
+    if (!plays.length) return [];
+    return [...plays].reverse().slice(0, 40).map((p: any, idx: number) => ({
+      id: String(p.id ?? idx),
+      period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
+      clock: p.clock?.displayValue ?? '',
+      text: p.text ?? p.shortText ?? p.type?.text ?? '',
+      teamAbbr: p.team?.abbreviation,
+      scoringPlay: Boolean(p.scoringPlay),
+    }));
+  }
 
-  return [...rawPlays].reverse().slice(0, 150).map((p: any, idx: number) => ({
+  return [...rawPlays].reverse().slice(0, 40).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -422,141 +391,127 @@ export function parseEspnNflTeamsList(data: any) {
 }
 
 export function parseEspnNflRoster(data: any) {
-  return parseEspnRosterEntries(data);
+  return parseEspnRosterResponse(data).map((p) => ({
+    ...p,
+    stats: p.stats.length ? p.stats : undefined,
+  }));
 }
 
-const NFL_STAT_ICONS: Record<string, string> = {
-  passingYards: 'ph-football',
-  rushingYards: 'ph-arrow-right',
-  receivingYards: 'ph-hand-grabbing',
-  passingTouchdowns: 'ph-star',
-  totalTouchdowns: 'ph-star',
-};
-
-export interface NflStatLeaderEntry {
-  name: string;
-  team: string;
-  logo: string;
-  value: string;
-}
-
-export interface NflStatCategory {
-  label: string;
-  icon: string;
-  leaders: NflStatLeaderEntry[];
-}
-
-export interface NflDraftPick {
-  pick: number;
-  round: number;
-  player: string;
-  team: string;
-  teamId: string;
-  pos: string;
-  college: string;
-}
-
-export interface NflDraftBoard {
-  meta: {
-    year?: number;
-    displayName: string;
-    pickCount: number;
-    roundCount: number;
-  };
-  picks: NflDraftPick[];
-}
-
-export async function espnNflLeaders(): Promise<any | null> {
-  const key = cacheKey('espn-nfl', 'leaders');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>('/api/espn/apis/site/v3/sports/football/nfl/leaders?limit=5', undefined, {
-        label: 'espn-nfl-leaders',
-        retries: 2,
-        bypassCache,
-      }),
-    ['standings', 'nfl', 'leaders'],
-  );
-}
-
-export async function espnNflDraft(): Promise<any | null> {
-  const key = cacheKey('espn-nfl', 'draft');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${BASE}/draft`, undefined, {
-        label: 'espn-nfl-draft',
-        retries: 2,
-        bypassCache,
-      }),
-    ['draft', 'nfl'],
-  );
-}
-
-export function parseEspnNflStatLeaders(data: any): NflStatCategory[] | null {
-  const categories = data?.leaders?.categories ?? [];
-  if (!categories.length) return null;
-
-  const wanted = ['passingYards', 'rushingYards', 'receivingYards', 'passingTouchdowns'];
-  const nflLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nfl/500/${abbr.toLowerCase()}.png`;
-  const mapped: NflStatCategory[] = [];
-
-  for (const key of wanted) {
-    const cat = categories.find((c: any) => c.name === key)
-      ?? (key === 'passingTouchdowns' ? categories.find((c: any) => c.name === 'totalTouchdowns') : null);
-    if (!cat?.leaders?.length) continue;
-
-    mapped.push({
-      label: cat.displayName ?? cat.name,
-      icon: NFL_STAT_ICONS[key] ?? NFL_STAT_ICONS[cat.name] ?? 'ph-chart-bar',
-      leaders: cat.leaders.slice(0, 5).map((l: any) => {
-        const abbr = l.team?.abbreviation ?? '—';
-        return {
-          name: l.athlete?.displayName ?? '—',
-          team: abbr,
-          logo: l.team?.logos?.[0]?.href ?? nflLogo(abbr),
-          value: String(l.displayValue ?? l.value ?? '—'),
-        };
-      }),
-    });
+function parseNflSeasonAverages(statsRaw: any): StatItem[] {
+  const averages = statsRaw?.categories?.find((c: any) => c.name === 'averages' || /passing|rushing|receiving/i.test(c.displayName ?? ''));
+  const labels: string[] = averages?.labels ?? [];
+  const entry = averages?.statistics?.[0];
+  const values: (string | number)[] = entry?.stats ?? [];
+  if (!labels.length || !values.length) {
+    return [
+      { label: 'GP', value: '—' },
+      { label: 'YDS', value: '—' },
+      { label: 'TD', value: '—' },
+      { label: 'INT', value: '—' },
+    ];
   }
 
-  return mapped.length ? mapped : null;
+  const idx = (label: string) => labels.indexOf(label);
+  const pick = (...keys: string[]) => {
+    const i = keys.map((k) => idx(k)).find((n) => n >= 0);
+    return i != null && i >= 0 ? String(values[i]) : undefined;
+  };
+
+  return [
+    { label: 'GP', value: pick('GP', 'G') ?? '—' },
+    { label: 'YDS', value: pick('YDS', 'PYDS', 'RYDS', 'REC YDS') ?? '—' },
+    { label: 'TD', value: pick('TD') ?? '—' },
+    { label: 'INT', value: pick('INT') ?? '—' },
+  ];
 }
 
-export function parseEspnNflDraft(data: any): NflDraftBoard | null {
-  if (!data?.picks?.length) return null;
+function collectFeaturedPlayerIds(summary: any, teamId: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
 
-  const teamMap = Object.fromEntries((data.teams ?? []).map((t: any) => [String(t.id), t]));
-  const posMap = Object.fromEntries(
-    (data.positions ?? []).map((p: any) => [String(p.id), p.abbreviation ?? p.displayName ?? '—']),
-  );
+  for (const teamBlock of summary?.leaders ?? []) {
+    const blockTeamId = String(teamBlock?.team?.id ?? '');
+    if (blockTeamId && blockTeamId !== teamId) continue;
 
-  const picks: NflDraftPick[] = data.picks.map((p: any) => {
-    const team = teamMap[String(p.teamId)];
-    const abbr = (team?.abbreviation ?? '—').toLowerCase();
-    const posId = p.athlete?.position?.id;
-    return {
-      pick: p.overall ?? p.pick ?? 0,
-      round: p.round ?? 1,
-      player: p.athlete?.displayName ?? 'TBD',
-      team: team?.displayName ?? team?.name ?? '—',
-      teamId: abbr,
-      pos: posMap[String(posId)] ?? '—',
-      college: p.athlete?.team?.displayName ?? p.athlete?.team?.name ?? '—',
-    };
+    for (const category of teamBlock?.leaders ?? []) {
+      for (const leader of category?.leaders ?? []) {
+        const id = leader?.athlete?.id;
+        if (!id) continue;
+        const sid = String(id);
+        if (seen.has(sid)) continue;
+        seen.add(sid);
+        ids.push(sid);
+      }
+    }
+  }
+
+  return ids.slice(0, 8);
+}
+
+async function fetchNflSeasonAveragesForPlayers(playerIds: string[]): Promise<Map<string, StatItem[]>> {
+  return batchFetchPlayerStats(playerIds, async (id) => {
+    const data = await espnNflAthlete(id);
+    const stats = parseNflSeasonAverages(data?.stats);
+    return stats.some((s) => s.value !== '—') ? stats : null;
   });
+}
 
-  return {
-    meta: {
-      year: data.year,
-      displayName: data.displayName ?? `${data.year ?? ''} NFL Draft`.trim(),
-      pickCount: picks.length,
-      roundCount: data.rounds?.length ?? 7,
-    },
-    picks,
+export async function buildEspnNflPreGameBoxScore(
+  summary: any,
+  awayTeam: Team,
+  homeTeam: Team,
+): Promise<GameBoxScore | undefined> {
+  const competitors: any[] = summary?.header?.competitions?.[0]?.competitors ?? [];
+  if (!competitors.length) return undefined;
+
+  const buildSide = async (homeAway: 'away' | 'home', team: Team) => {
+    const comp = competitors.find((c) => c.homeAway === homeAway);
+    const teamId = String(comp?.team?.id ?? comp?.id ?? '');
+    if (!teamId) return null;
+
+    const featuredIds = collectFeaturedPlayerIds(summary, teamId);
+    const rosterData = await espnNflTeamRoster(teamId);
+    const roster = parseEspnNflRoster(rosterData);
+    if (!roster.length) return null;
+
+    const seasonAvgs = await fetchNflSeasonAveragesForPlayers(
+      featuredIds.length
+        ? [...new Set([...featuredIds, ...roster.slice(0, 11).map((p) => p.id)])]
+        : roster.slice(0, 11).map((p) => p.id),
+    );
+    const featuredSet = new Set(featuredIds);
+
+    const players: BoxScorePlayer[] = roster.map((base, index) => ({
+      ...base,
+      starter: featuredSet.has(base.id) ? featuredIds.indexOf(base.id) < 5 : index < 5,
+      stats: seasonAvgs.get(base.id) ?? parseNflSeasonAverages(null),
+    }));
+
+    if (!players.length) return null;
+
+    return {
+      team: { ...team, logo: resolveNflTeamLogo(team.abbr, team.logo) },
+      players,
+      totals: [],
+    };
   };
+
+  const [away, home] = await Promise.all([
+    buildSide('away', awayTeam),
+    buildSide('home', homeTeam),
+  ]);
+
+  if (!away?.players.length && !home?.players.length) return undefined;
+  return {
+    mode: 'season',
+    away: away ?? { team: awayTeam, players: [], totals: [] },
+    home: home ?? { team: homeTeam, players: [], totals: [] },
+  };
+}
+
+export async function enrichEspnNflRosterSeasonStats(roster: Player[]): Promise<Player[]> {
+  const needsStats = roster.filter((p) => !p.stats.length);
+  if (!needsStats.length) return roster;
+  const statsById = await fetchNflSeasonAveragesForPlayers(needsStats.map((p) => p.id));
+  return mergeRosterStats(roster, statsById);
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { resetParseTelemetry } from '../telemetry';
-import { resetHotPathRegistry } from '../hotPathRegistry';
 import { CHAOS_SCENARIOS } from '../simulator/scenarios';
 import { runAllChaosScenarios, runChaosScenario, summarizeSimulations } from '../simulator/runSimulation';
 import { cloneFixture, moveField, wrapInObject, awayScorePath } from '../simulator/mutations';
@@ -26,7 +25,6 @@ describe('chaos mutations', () => {
 describe('chaos scenarios', () => {
   beforeEach(() => {
     resetParseTelemetry();
-    resetHotPathRegistry();
   });
 
   it('defines recoverable and intentional failure scenarios', () => {

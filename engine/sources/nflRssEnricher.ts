@@ -1,16 +1,15 @@
 import { createEngineLog } from '../core/engineUtils';
-import { loadRssFeedItems } from '../core/rssFeedCache';
+import { enrichGameContext } from '../core/mergePayload';
+import { loadRssFeedItems, loadRssFeedMap } from '../core/rssFeedCache';
 import {
   textMentionsPlayer,
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
-import { applyRosterInjuriesFromItems, mapRssRumorItem } from '../core/rssRumorUtils';
-import type { PlayerRumor } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
+import type { Game, Player, ResolvedTeam } from '../core/types';
 
 const log = createEngineLog('nfl-rss');
-import { enrichGameContext } from '../core/mergePayload';
-import type { Game, Player, ResolvedTeam } from '../core/types';
 
 export type NflRssFeedRole =
   | 'context_headline'
@@ -43,7 +42,8 @@ function isNflGame(game: Game): boolean {
 }
 
 function isGenericNewsHeadline(title: string): boolean {
-  return /power rankings|mock draft|weekly (?:recap|wrap)|rankings:|fantasy football/i.test(title);
+  return isScoreboardNoiseText(title)
+    || /power rankings|mock draft|weekly (?:recap|wrap)|rankings:|fantasy football/i.test(title);
 }
 
 function isPlayoffHeadline(title: string): boolean {
@@ -75,12 +75,7 @@ export async function enrichNflGamesFromRss(games: Game[]): Promise<Game[]> {
   const badgeFeeds = feedsByRole.get('live_badge') ?? [];
   const summaryFeeds = feedsByRole.get('team_notes') ?? [];
 
-  const feedItems = new Map<string, RssItem[]>();
-  await Promise.all(
-    NFL_RSS_FEEDS.map(async (feed) => {
-      feedItems.set(feed.id, await getFeedItems(feed));
-    }),
-  );
+  const feedItems = await loadRssFeedMap('nfl-rss-feed', NFL_RSS_FEEDS);
 
   return games.map((game) => {
       try {
@@ -91,7 +86,7 @@ export async function enrichNflGamesFromRss(games: Game[]): Promise<Game[]> {
           for (const feed of headlineFeeds) {
             const items = feedItems.get(feed.id) ?? [];
             const hit = findTeamItem(items, game);
-            if (hit) {
+            if (hit && !isScoreboardNoiseText(hit.title)) {
               enriched = enrichGameContext(enriched, {
                 headline: hit.title,
                 priority: 300,
@@ -108,7 +103,6 @@ export async function enrichNflGamesFromRss(games: Game[]): Promise<Game[]> {
             if (hit) {
               enriched = enrichGameContext(enriched, {
                 badge: 'LIVE',
-                headline: hit.title,
                 priority: 400,
               });
               break;
@@ -116,11 +110,14 @@ export async function enrichNflGamesFromRss(games: Game[]): Promise<Game[]> {
           }
         }
 
-        if (!enriched.context?.seriesSummary) {
+        if (
+          !enriched.context?.seriesSummary
+          && (game.context?.phase === 'playoffs' || game.context?.phase === 'finals')
+        ) {
           for (const feed of summaryFeeds) {
             const items = feedItems.get(feed.id) ?? [];
             const hit = findTeamItem(items, game);
-            if (hit) {
+            if (hit && !isScoreboardNoiseText(hit.title)) {
               enriched = enrichGameContext(enriched, {
                 seriesSummary: hit.title.slice(0, 120),
                 priority: 250,
@@ -147,6 +144,7 @@ export async function nflRssCrossCheckPlayoffHint(
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
+      if (isScoreboardNoiseText(item.title)) continue;
       const lower = text.toLowerCase();
       const isPlayoff = /super bowl|wild.?card|divisional|conference championship|playoffs?/i.test(lower);
       const mentions =
@@ -160,19 +158,14 @@ export async function nflRssCrossCheckPlayoffHint(
   return null;
 }
 
-export async function fetchNflPlayerRumors(player: Player): Promise<PlayerRumor[]> {
+export async function fetchNflPlayerRumors(player: Player): Promise<string[]> {
   const feeds = NFL_RSS_FEEDS.filter((f) => f.role === 'player_rumors');
-  const rumors: PlayerRumor[] = [];
-  const seen = new Set<string>();
+  const rumors: string[] = [];
   for (const feed of feeds) {
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
-      if (!textMentionsPlayer(text, player.name)) continue;
-      const key = item.title.toLowerCase().trim();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      rumors.push(mapRssRumorItem(item, feed.name));
+      if (textMentionsPlayer(text, player.name)) rumors.push(item.title);
     }
   }
   return rumors.slice(0, 3);
@@ -187,7 +180,17 @@ export async function enrichNflRosterWithInjuries(roster: Player[]): Promise<Pla
     injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
   }
 
-  return applyRosterInjuriesFromItems(roster, injuryItems);
+  return roster.map((player) => {
+    const hit = injuryItems.find((item) => {
+      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
+      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|gtd|inactive|ruled out/i.test(text);
+    });
+    if (!hit) return player;
+    return {
+      ...player,
+      position: player.position.includes('·') ? player.position : `${player.position} · ${hit.title.slice(0, 40)}`,
+    };
+  });
 }
 
 export async function enrichNflTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {

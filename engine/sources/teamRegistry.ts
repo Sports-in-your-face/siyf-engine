@@ -1,6 +1,7 @@
+import { CORE_SOCCER_LEAGUES } from '../core/coreSoccerLeagues';
 import { fetchCdnJson, resolveCdnAsset, type CdnTeamSport } from '../../config/siyfCdn';
 import type { ResolvedTeam } from '../core/types';
-import { DEFAULT_SOCCER_LEAGUE } from './espnSoccerSource';
+import { espnSoccerTeams, parseEspnSoccerTeamsList } from './espnSoccerSource';
 
 export type TeamRegistryKey = CdnTeamSport;
 
@@ -16,6 +17,45 @@ const loadPromises = new Map<TeamRegistryKey, Promise<void>>();
 
 let soccerLeagueLabels: Record<string, string> = {};
 let soccerLabelsPromise: Promise<void> | null = null;
+
+const espnSoccerTeamsBySlug = new Map<string, ResolvedTeam[]>();
+const espnSoccerTeamLoads = new Map<string, Promise<void>>();
+
+async function loadEspnSoccerTeamsForSlug(slug: string): Promise<void> {
+  if (espnSoccerTeamsBySlug.has(slug)) return;
+  if (!espnSoccerTeamLoads.has(slug)) {
+    espnSoccerTeamLoads.set(slug, (async () => {
+      const raw = await espnSoccerTeams(slug);
+      const teams = raw ? parseEspnSoccerTeamsList(raw, slug) : [];
+      espnSoccerTeamsBySlug.set(slug, teams);
+    })().catch(() => {
+      espnSoccerTeamsBySlug.set(slug, []);
+    }));
+  }
+  await espnSoccerTeamLoads.get(slug);
+}
+
+export async function ensureEspnSoccerTeamRegistries(): Promise<void> {
+  await Promise.all(CORE_SOCCER_LEAGUES.map(({ slug }) => loadEspnSoccerTeamsForSlug(slug)));
+}
+
+function resolveFromEspnSoccerTeams(query: string): ResolvedTeam | undefined {
+  const q = query.trim().toLowerCase();
+  if (!q) return undefined;
+  for (const teams of espnSoccerTeamsBySlug.values()) {
+    for (const team of teams) {
+      if (
+        team.abbr.toLowerCase() === q
+        || team.name.toLowerCase() === q
+        || team.city.toLowerCase() === q
+        || team.espnId === query
+      ) {
+        return team;
+      }
+    }
+  }
+  return undefined;
+}
 
 function normalizeAbbr(abbr: string): string {
   return abbr.toUpperCase().trim();
@@ -54,11 +94,11 @@ async function loadRegistry(key: TeamRegistryKey): Promise<void> {
     fetchCdnJson<Partial<Record<TeamRegistryKey, AliasMap>>>('meta/team-aliases.json'),
   ]);
 
-  const teams = normalizeTeamLogos(key, rawTeams ?? []);
+  const teams = normalizeTeamLogos(key, rawTeams);
 
   registries.set(key, {
     teams,
-    aliases: buildAliasMap(teams, (aliasBundle ?? {})[key] ?? {}),
+    aliases: buildAliasMap(teams, aliasBundle[key] ?? {}),
   });
 }
 
@@ -73,13 +113,12 @@ export function ensureTeamRegistry(key: TeamRegistryKey): Promise<void> {
 export async function preloadTeamRegistries(): Promise<void> {
   await Promise.all([
     ensureTeamRegistry('nba'),
-    ensureTeamRegistry('wnba'),
     ensureTeamRegistry('nfl'),
     ensureTeamRegistry('epl'),
-    ensureTeamRegistry('mls'),
     ensureTeamRegistry('mlb'),
     ensureTeamRegistry('nhl'),
     loadSoccerLeagueLabels(),
+    ensureEspnSoccerTeamRegistries(),
   ]);
 }
 
@@ -88,7 +127,7 @@ async function loadSoccerLeagueLabels(): Promise<void> {
   if (!soccerLabelsPromise) {
     soccerLabelsPromise = fetchCdnJson<Record<string, string>>('meta/soccer-leagues.json')
       .then((labels) => {
-        soccerLeagueLabels = labels ?? {};
+        soccerLeagueLabels = labels;
       })
       .catch(() => undefined);
   }
@@ -203,57 +242,47 @@ export function enrichNflTeam(
   return enrichFromRegistry('nfl', abbr, partial);
 }
 
-function soccerRegistryKey(): TeamRegistryKey {
-  return DEFAULT_SOCCER_LEAGUE === 'usa.1' ? 'mls' : 'epl';
-}
-
-// Soccer (MLS or EPL based on league config)
+// Soccer — ESPN teams across six core leagues, with EPL CDN fallback
 export function normalizeSoccerTeamAbbr(abbr: string): string {
-  return normalizeAbbrFor(soccerRegistryKey(), abbr);
+  return resolveFromEspnSoccerTeams(abbr)?.abbr
+    ?? resolveFromRegistry('epl', abbr)?.abbr
+    ?? abbr.toUpperCase().trim();
 }
 
 export function getAllSoccerTeams(): ResolvedTeam[] {
-  const teams = getAllFromRegistry(soccerRegistryKey());
-  return teams.filter((t, i, arr) => arr.findIndex((x) => x.abbr === t.abbr) === i);
+  const espnTeams = [...espnSoccerTeamsBySlug.values()].flat();
+  const cdnTeams = getAllFromRegistry('epl');
+  const teams = [...espnTeams, ...cdnTeams];
+  return teams.filter(
+    (t, i, arr) => arr.findIndex((x) => x.id === t.id && x.leagueSlug === t.leagueSlug) === i,
+  );
 }
 
 export function resolveSoccerTeam(query: string): ResolvedTeam | undefined {
-  return resolveFromRegistry(soccerRegistryKey(), query);
+  return resolveFromEspnSoccerTeams(query) ?? resolveFromRegistry('epl', query);
 }
 
 export function resolveSoccerTeamLogo(abbr: string, existing?: string): string {
-  const resolved = resolveTeamLogoFor(soccerRegistryKey(), abbr, existing);
-  if (resolved) return resolved;
-  if (existing && isEspnAssetUrl(existing)) return existing;
-  if (existing?.startsWith('http://') || existing?.startsWith('https://')) return existing;
-  return '';
+  const fromEspn = resolveFromEspnSoccerTeams(abbr)?.logo;
+  if (fromEspn) return fromEspn;
+  return resolveTeamLogoFor('epl', abbr, existing);
 }
 
 export function enrichSoccerTeam(
   abbr: string,
   partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
 ): ResolvedTeam {
-  return enrichFromRegistry(soccerRegistryKey(), abbr, partial);
-}
-
-// WNBA (separate registry — shared abbreviations with NBA, e.g. IND)
-export function getAllWnbaTeams(): ResolvedTeam[] {
-  return getAllFromRegistry('wnba');
-}
-
-export function resolveWnbaTeam(query: string): ResolvedTeam | undefined {
-  return resolveFromRegistry('wnba', query);
-}
-
-export function resolveWnbaTeamLogo(abbr: string, existing?: string): string {
-  return resolveTeamLogoFor('wnba', abbr, existing);
-}
-
-export function enrichWnbaTeam(
-  abbr: string,
-  partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
-): ResolvedTeam {
-  return enrichFromRegistry('wnba', abbr, partial);
+  const fromEspn = resolveFromEspnSoccerTeams(abbr);
+  if (fromEspn) {
+    return {
+      ...fromEspn,
+      ...partial,
+      abbr: fromEspn.abbr,
+      name: partial.name ?? fromEspn.name,
+      logo: partial.logo ?? fromEspn.logo,
+    };
+  }
+  return enrichFromRegistry('epl', abbr, partial);
 }
 
 // MLB
@@ -296,8 +325,74 @@ export function enrichNhlTeam(
   return enrichFromRegistry('nhl', abbr, partial);
 }
 
+type TeamEnricher = (abbr: string, partial: Partial<ResolvedTeam> & { name?: string; logo?: string }) => ResolvedTeam;
+type LogoResolver = (abbr: string, existing?: string) => string;
+
+const ENGINE_SPORT_ENRICHERS: Partial<Record<import('../sportConfig').EngineSport, TeamEnricher>> = {
+  BASKETBALL: enrichTeam,
+  FOOTBALL: enrichNflTeam,
+  SOCCER: enrichSoccerTeam,
+  BASEBALL: enrichMlbTeam,
+  HOCKEY: enrichNhlTeam,
+};
+
+const ENGINE_SPORT_LOGO_RESOLVERS: Partial<Record<import('../sportConfig').EngineSport, LogoResolver>> = {
+  BASKETBALL: resolveTeamLogo,
+  FOOTBALL: resolveNflTeamLogo,
+  SOCCER: resolveSoccerTeamLogo,
+  BASEBALL: resolveMlbTeamLogo,
+  HOCKEY: resolveNhlTeamLogo,
+};
+
+/** Sport-aware team enrichment — avoids WSH/NBA vs WSH/MLB collisions. */
+export function enrichTeamForSport(
+  sport: import('../sportConfig').EngineSport,
+  abbr: string,
+  partial: Partial<ResolvedTeam> & { name?: string; logo?: string },
+): ResolvedTeam {
+  const enrich = ENGINE_SPORT_ENRICHERS[sport];
+  if (!enrich) {
+    return {
+      id: partial.id ?? abbr,
+      name: partial.name ?? abbr,
+      abbr,
+      city: partial.city ?? '',
+      logo: partial.logo ?? '',
+      color: partial.color,
+      alternateColor: partial.alternateColor,
+    };
+  }
+  return enrich(abbr, partial);
+}
+
+export function resolveTeamLogoForSport(
+  sport: import('../sportConfig').EngineSport,
+  abbr: string,
+  existing?: string,
+): string {
+  const resolve = ENGINE_SPORT_LOGO_RESOLVERS[sport];
+  if (!resolve) return existing ?? '';
+  return resolve(abbr, existing);
+}
+
+export function normalizeAbbrForSport(
+  sport: import('../sportConfig').EngineSport | undefined,
+  abbr: string,
+): string {
+  switch (sport) {
+    case 'BASEBALL': return normalizeMlbTeamAbbr(abbr);
+    case 'FOOTBALL': return normalizeNflTeamAbbr(abbr);
+    case 'HOCKEY': return normalizeAbbrFor('nhl', abbr);
+    case 'SOCCER': return normalizeSoccerTeamAbbr(abbr);
+    case 'BASKETBALL':
+    default: return normalizeTeamAbbr(abbr);
+  }
+}
+
 export function leagueLabel(slug: string): string {
-  return soccerLeagueLabels[slug] ?? slug.replace(/\./g, ' ').toUpperCase();
+  return soccerLeagueLabels[slug]
+    ?? CORE_SOCCER_LEAGUES.find((l) => l.slug === slug)?.label
+    ?? slug.replace(/\./g, ' ').toUpperCase();
 }
 
 export { loadSoccerLeagueLabels };

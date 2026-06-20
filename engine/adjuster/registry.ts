@@ -5,8 +5,6 @@ export const ESPN_COMPETITOR_ALIASES = {
   score: [
     ['score', 'displayValue'],
     ['score', 'value'],
-    ['score', 'score'],
-    ['curScore'],
     ['scoring', 'displayValue'],
     ['linescore', 'score', 'displayValue'],
     ['linescore', 'score'],
@@ -16,7 +14,6 @@ export const ESPN_COMPETITOR_ALIASES = {
     ['team', 'displayName'],
     ['team', 'name'],
     ['team', 'shortDisplayName'],
-    ['competitor', 'displayName'],
     ['team', 'location'],
     ['athlete', 'displayName'],
     ['athlete', 'shortName'],
@@ -47,9 +44,9 @@ export type EspnCompetitorField = keyof typeof ESPN_COMPETITOR_ALIASES;
 
 export const ESPN_EVENT_ALIASES = {
   eventId: [['id'], ['uid'], ['guid']],
-  statusState: [['status', 'type', 'state'], ['competitions', 0, 'status', 'type', 'state']],
-  statusShortDetail: [['status', 'type', 'shortDetail'], ['status', 'type', 'detail']],
-  displayClock: [['status', 'displayClock'], ['status', 'type', 'detail']],
+  statusState: [['status', 'type', 'state']],
+  statusShortDetail: [['status', 'type', 'shortDetail'], ['status', 'type', 'detail'], ['status', 'type', 'description']],
+  displayClock: [['status', 'displayClock'], ['status', 'type', 'detail'], ['status', 'clock']],
   leagueAbbr: [
     ['leagues', 0, 'abbreviation'],
     ['competitions', 0, 'league', 'abbreviation'],

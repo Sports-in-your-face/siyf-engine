@@ -20,22 +20,13 @@ export {
   applySpecialClassificationToGames,
   getSpecialGames,
 } from './core/classifySpecialGame';
-export { preloadSpecialEventCatalog, getCuratedSpecialEvents } from './core/specialGameCatalog';
-export type { CuratedSpecialEvent, SpecialEventNav, SpecialEventSchedule, SpecialEventScheduleType } from './core/specialGameCatalog';
 export {
-  resolveSpecialEventWindow,
-  getVisibleSpecialEventNav,
-  getNextSpecialEvent,
-  resolveSpecialEventBySlug,
-  isSpecialEventNavVisible,
-  isSpecialEventHubActive,
-  filterGamesForSpecialEvent,
-  gameMatchesSpecialEvent,
-  formatSpecialEventStatus,
-  parseDateStart,
-  parseDateEnd,
-} from './core/specialEventSchedule';
-export type { SpecialEventWindow, SpecialEventPhase } from './core/specialEventSchedule';
+  DEFAULT_SOCCER_SCOREBOARD_LEAGUES,
+  setSoccerScoreboardLeagues,
+  getSoccerScoreboardLeagues,
+  filterGamesBySoccerLeagues,
+} from './soccerLeagueFilter';
+export { preloadSpecialEventCatalog, getCuratedSpecialEvents } from './core/specialGameCatalog';
 export type {
   GameDetail,
   ResolvedTeam,

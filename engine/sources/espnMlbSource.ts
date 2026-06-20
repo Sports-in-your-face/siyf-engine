@@ -8,6 +8,8 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
+import { fetchEspnScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
+import { isEspnNumericEventId } from '../core/espnSummaryGuard';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -17,10 +19,9 @@ import type {
   Team,
 } from '../core/types';
 import { enrichMlbTeam, resolveMlbTeamLogo } from './teamRegistry';
-import { espnSearchAthletesWithFallback } from './espnCoreSearch';
-import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
-import { parseEspnRosterEntries } from './espnRosterUtils';
-import { parseEspnStatLeaders } from './espnStatLeaders';
+import { parseEspnRosterResponse } from './espnRoster';
+import { batchFetchPlayerStats, mergeRosterStats } from '../core/rosterSeasonStats';
+import type { Player } from '../../types';
 
 const BASE = '/api/espn/apis/site/v2/sports/baseball/mlb';
 const COMMON = '/api/espn/apis/common/v3/sports/baseball/mlb';
@@ -31,10 +32,7 @@ export async function espnMlbScoreboard(dates?: string): Promise<any | null> {
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${BASE}/scoreboard?dates=${dates}` : `${BASE}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, { label: 'espn-mlb-scoreboard', retries: 2, bypassCache });
-    },
+    () => fetchEspnScoreboardSelfPatch('BASEBALL', dates),
     ['scoreboard', 'mlb'],
   );
 }
@@ -51,6 +49,7 @@ export async function espnMlbTeams(): Promise<any | null> {
 }
 
 export async function espnMlbSummary(eventId: string, gameState?: GameLiveState): Promise<any | null> {
+  if (!isEspnNumericEventId(eventId)) return null;
   const key = cacheKey('espn-mlb', 'summary', eventId);
   return cachedFetch(
     key,
@@ -99,14 +98,14 @@ export async function espnMlbStandings(): Promise<StandingsGroup[]> {
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data = await fetchEspnStandingsPayload(
-    `${BASE}/standings`,
-    STANDINGS_ALT,
-    'espn-mlb-standings',
-  );
+  const data =
+    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-mlb-standings' })) ??
+    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-mlb-standings-alt' }));
+
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = extractStandingsChildren(data);
+  const children = data.children ?? data.standings?.children ?? [];
+  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Division',
@@ -143,8 +142,6 @@ export async function espnMlbStandings(): Promise<StandingsGroup[]> {
 }
 
 export async function espnMlbAthlete(id: string): Promise<any | null> {
-  if (!id || !/^\d+$/.test(String(id))) return null;
-
   const key = cacheKey('espn-mlb', 'athlete', id);
   return cachedFetch(
     key,
@@ -165,16 +162,17 @@ export async function espnMlbAthlete(id: string): Promise<any | null> {
 
 export async function espnMlbSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn-mlb', 'search', query.toLowerCase());
-  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async () =>
-      espnSearchAthletesWithFallback(
-        query,
-        { sport: 'baseball', league: 'mlb', label: 'mlb' },
-        `${COMMON}/athletes?search=${encoded}&limit=10`,
-      ),
+    async ({ bypassCache }) => {
+      const data = await fetchJsonResilient<any>(
+        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
+        undefined,
+        { label: 'espn-mlb-athlete-search', bypassCache },
+      );
+      return data?.items ?? data?.athletes ?? [];
+    },
     ['search'],
   );
   return result ?? [];
@@ -290,7 +288,7 @@ export function parseEspnMlbPlays(summary: any): PlayEvent[] {
 
   if (!Array.isArray(rawPlays) || !rawPlays.length) return [];
 
-  return [...rawPlays].reverse().slice(0, 150).map((p: any, idx: number) => ({
+  return [...rawPlays].reverse().slice(0, 40).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Inning ${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -388,65 +386,123 @@ export function parseEspnMlbTeamsList(data: any) {
 }
 
 export function parseEspnMlbRoster(data: any) {
-  return parseEspnRosterEntries(data);
+  return parseEspnRosterResponse(data).map((p) => ({
+    ...p,
+    stats: p.stats.length ? p.stats : undefined,
+  }));
 }
 
-const MLB_STAT_ICONS: Record<string, string> = {
-  homeRuns: 'ph-lightning',
-  avg: 'ph-target',
-  ERA: 'ph-shield',
-  RBIs: 'ph-users-three',
-  wins: 'ph-trophy',
-  strikeouts: 'ph-fire',
-};
+function collectFeaturedPlayerIds(summary: any, teamId: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
 
-export async function espnMlbLeaders(): Promise<unknown | null> {
-  const key = cacheKey('espn-mlb', 'leaders');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/baseball/mlb/leaders?limit=5', undefined, {
-        label: 'espn-mlb-leaders',
-        retries: 2,
-        bypassCache,
-      }),
-    ['standings', 'mlb', 'leaders'],
+  for (const teamBlock of summary?.leaders ?? []) {
+    const blockTeamId = String(teamBlock?.team?.id ?? '');
+    if (blockTeamId && blockTeamId !== teamId) continue;
+
+    for (const category of teamBlock?.leaders ?? []) {
+      for (const leader of category?.leaders ?? []) {
+        const id = leader?.athlete?.id;
+        if (!id) continue;
+        const sid = String(id);
+        if (seen.has(sid)) continue;
+        seen.add(sid);
+        ids.push(sid);
+      }
+    }
+  }
+
+  return ids.slice(0, 9);
+}
+
+function parseMlbSeasonAverages(statsRaw: any): StatItem[] {
+  const averages = statsRaw?.categories?.find(
+    (c: any) => c.name === 'averages' || c.displayName === 'Regular Season Averages',
   );
+  const labels: string[] = averages?.labels ?? [];
+  const entry = averages?.statistics?.[0];
+  const values: (string | number)[] = entry?.stats ?? [];
+  if (!labels.length || !values.length) {
+    return [
+      { label: 'AVG', value: '—' },
+      { label: 'HR', value: '—' },
+      { label: 'RBI', value: '—' },
+    ];
+  }
+
+  const idx = (label: string) => labels.indexOf(label);
+  return [
+    { label: 'AVG', value: String(values[idx('AVG')] ?? values[idx('avg')] ?? '—') },
+    { label: 'HR', value: String(values[idx('HR')] ?? values[idx('homeRuns')] ?? '—') },
+    { label: 'RBI', value: String(values[idx('RBI')] ?? values[idx('RBIs')] ?? '—') },
+    { label: 'R', value: String(values[idx('R')] ?? values[idx('runs')] ?? '—') },
+    { label: 'H', value: String(values[idx('H')] ?? values[idx('hits')] ?? '—') },
+    { label: 'ERA', value: String(values[idx('ERA')] ?? '—') },
+    { label: 'W', value: String(values[idx('W')] ?? values[idx('wins')] ?? '—') },
+    { label: 'SO', value: String(values[idx('SO')] ?? values[idx('K')] ?? values[idx('strikeouts')] ?? '—') },
+  ].filter((s) => s.value !== '—');
 }
 
-export function parseEspnMlbStatLeaders(data: unknown) {
-  const mlbLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/mlb/500/${abbr.toLowerCase()}.png`;
-  return parseEspnStatLeaders(data, {
-    categories: [
-      { key: 'homeRuns', icon: MLB_STAT_ICONS.homeRuns },
-      { key: 'avg', icon: MLB_STAT_ICONS.avg, label: 'Batting Avg' },
-      { key: 'ERA', icon: MLB_STAT_ICONS.ERA },
-      { key: 'RBIs', icon: MLB_STAT_ICONS.RBIs },
-      { key: 'wins', icon: MLB_STAT_ICONS.wins },
-      { key: 'strikeouts', icon: MLB_STAT_ICONS.strikeouts },
-    ],
-    teamLogo: mlbLogo,
-    formatValue: formatMlbLeaderValue,
+async function fetchMlbSeasonAveragesForPlayers(playerIds: string[]): Promise<Map<string, StatItem[]>> {
+  return batchFetchPlayerStats(playerIds, async (id) => {
+    const data = await espnMlbAthlete(id);
+    const avgs = parseMlbSeasonAverages(data?.stats);
+    return avgs.length ? avgs : null;
   });
 }
 
-function formatMlbLeaderValue(
-  leader: { displayValue?: string; value?: string | number },
-  categoryKey: string,
-): string {
-  const raw = leader.value;
-  if (raw == null || raw === '') return leader.displayValue ?? '—';
+export async function enrichEspnMlbRosterSeasonStats(roster: Player[]): Promise<Player[]> {
+  const needsStats = roster.filter((p) => !p.stats.length);
+  if (!needsStats.length) return roster;
+  const statsById = await fetchMlbSeasonAveragesForPlayers(needsStats.map((p) => p.id));
+  return mergeRosterStats(roster, statsById);
+}
 
-  const num = Number(raw);
-  if (Number.isNaN(num)) return String(raw);
+export async function buildEspnMlbPreGameBoxScore(
+  summary: any,
+  awayTeam: Team,
+  homeTeam: Team,
+): Promise<GameBoxScore | undefined> {
+  const competitors: any[] = summary?.header?.competitions?.[0]?.competitors ?? [];
+  if (!competitors.length) return undefined;
 
-  switch (categoryKey) {
-    case 'avg':
-      return num.toFixed(3).replace(/^0/, '');
-    case 'ERA':
-      return num.toFixed(2);
-    default:
-      return String(Math.round(num));
-  }
+  const buildSide = async (homeAway: 'away' | 'home', team: Team) => {
+    const comp = competitors.find((c) => c.homeAway === homeAway);
+    const teamId = String(comp?.team?.id ?? comp?.id ?? '');
+    if (!teamId) return null;
+
+    const featuredIds = collectFeaturedPlayerIds(summary, teamId);
+    const rosterData = await espnMlbTeamRoster(teamId);
+    const roster = parseEspnMlbRoster(rosterData);
+    if (!roster.length) return null;
+
+    const seasonAvgs = await fetchMlbSeasonAveragesForPlayers(roster.map((p) => p.id));
+    const featuredSet = new Set(featuredIds);
+
+    const players: BoxScorePlayer[] = roster.map((base, index) => ({
+      ...base,
+      starter: featuredSet.has(base.id) ? featuredIds.indexOf(base.id) < 9 : index < 9,
+      stats: seasonAvgs.get(base.id) ?? parseMlbSeasonAverages(null),
+    }));
+
+    if (!players.length) return null;
+
+    return {
+      team: { ...team, logo: resolveMlbTeamLogo(team.abbr, team.logo) },
+      players,
+      totals: [],
+    };
+  };
+
+  const [away, home] = await Promise.all([
+    buildSide('away', awayTeam),
+    buildSide('home', homeTeam),
+  ]);
+
+  if (!away?.players.length && !home?.players.length) return undefined;
+  return {
+    mode: 'season',
+    away: away ?? { team: awayTeam, players: [], totals: [] },
+    home: home ?? { team: homeTeam, players: [], totals: [] },
+  };
 }

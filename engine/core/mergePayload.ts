@@ -1,7 +1,6 @@
 import type { Game, GameContext, Player, PlayerDetails, PlayerSeasonRow, StatItem } from '../../types';
 import type { ResolvedTeam, StandingsGroup } from './types';
 import { mergeContext } from '../../services/parsers/parseBasketballContext';
-import { dedupeRumors } from './rssRumorUtils';
 
 export function mergePlayerDetails(base: PlayerDetails, patch: Partial<PlayerDetails>): PlayerDetails {
   return {
@@ -23,7 +22,7 @@ export function mergePlayerDetails(base: PlayerDetails, patch: Partial<PlayerDet
     seasonHistory: base.seasonHistory.length ? base.seasonHistory : (patch.seasonHistory?.length ? patch.seasonHistory : base.seasonHistory),
     recentGames: base.recentGames.length ? base.recentGames : (patch.recentGames?.length ? patch.recentGames : base.recentGames),
     awards: base.awards.length ? base.awards : (patch.awards?.length ? patch.awards : base.awards),
-    rumors: dedupeRumors([...(base.rumors ?? []), ...(patch.rumors ?? [])]),
+    rumors: [...(base.rumors ?? []), ...(patch.rumors ?? [])].slice(0, 5),
   };
 }
 

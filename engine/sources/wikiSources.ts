@@ -1,5 +1,4 @@
 import { fetchJsonResilient } from '../core/resilientFetch';
-import { externalFetchUrl } from '../../config/siyfApi';
 import { cacheGet, cacheKey, cacheSet } from '../core/cache';
 import type { Player, PlayerDetails } from '../../types';
 
@@ -46,7 +45,7 @@ export async function searchWikidataPlayers(query: string): Promise<Player[]> {
       SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
     } LIMIT 12`;
 
-  const url = externalFetchUrl(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`);
+  const url = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`;
   const raw = await fetchJsonResilient<any>(url, undefined, {
     label: 'wikidata-search',
     retries: 1,
@@ -63,7 +62,7 @@ export async function searchWikidataPlayers(query: string): Promise<Player[]> {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     players.push({
-      id: `wikidata:${id}`,
+      id,
       name: b.playerLabel?.value ?? query,
       team: b.teamLabel?.value ?? '—',
       position: b.positionLabel?.value ?? '—',

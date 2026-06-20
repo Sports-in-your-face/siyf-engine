@@ -1,42 +1,14 @@
 const ESPN_MMA_HEADSHOT_BASE = 'https://a.espncdn.com/i/headshots/mma/players/full';
 const ESPN_TENNIS_HEADSHOT_BASE = 'https://a.espncdn.com/i/headshots/tennis/players/full';
 
-/** ESPN headshot CDN only works with plain numeric athlete IDs — not composite or negative ids. */
-function isValidEspnHeadshotId(id: unknown): boolean {
-  if (id == null || id === '') return false;
-  const s = String(id).trim();
-  return /^\d+$/.test(s) && s !== '0';
-}
-
 export function buildMmaHeadshotUrl(athleteId?: string | number | null): string | undefined {
-  if (!isValidEspnHeadshotId(athleteId)) return undefined;
+  if (athleteId == null || athleteId === '') return undefined;
   return `${ESPN_MMA_HEADSHOT_BASE}/${athleteId}.png`;
 }
 
 export function buildTennisHeadshotUrl(athleteId?: string | number | null): string | undefined {
-  if (!isValidEspnHeadshotId(athleteId)) return undefined;
+  if (athleteId == null || athleteId === '') return undefined;
   return `${ESPN_TENNIS_HEADSHOT_BASE}/${athleteId}.png`;
-}
-
-/** Two-letter initials for fighter/athlete avatar fallbacks. */
-export function fighterInitials(name?: string | null): string {
-  if (!name) return '?';
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
-}
-
-/** Prefer explicit headshot URL, then ESPN CDN from athlete id. */
-export function resolveFighterDisplayHeadshot(opts: {
-  athleteId?: string | number | null;
-  headshot?: string | null;
-}): string | undefined {
-  if (opts.headshot) return opts.headshot;
-  return buildMmaHeadshotUrl(opts.athleteId);
 }
 
 export function isCountryFlagUrl(url?: string): boolean {
@@ -51,7 +23,6 @@ export function isPlaceholderCompetitor(competitor: { name?: string; abbr?: stri
 export interface IndividualAthleteAssets {
   headshot?: string;
   flag?: string;
-  logoFallback?: string;
 }
 
 type AthleteComp = {
@@ -73,7 +44,7 @@ export function resolveMmaFighterAssets(comp: AthleteComp): IndividualAthleteAss
   const athleteId = comp.id ?? athlete.id;
   const flag = athlete.flag?.href;
   const headshot = headshotFromAthlete(athlete) ?? buildMmaHeadshotUrl(athleteId);
-  return { headshot: headshot ?? flag, flag, logoFallback: !headshot ? flag : undefined };
+  return { headshot, flag };
 }
 
 export function resolveTennisAthleteAssets(
@@ -86,7 +57,7 @@ export function resolveTennisAthleteAssets(
   const headshotFromApi = headshotFromAthlete(athlete);
   // WTA ids differ from ESPN — headshots are resolved via wtaTennisSource enrichment.
   const headshot = headshotFromApi ?? (tour === 'ATP' ? buildTennisHeadshotUrl(athleteId) : undefined);
-  return { headshot: headshot ?? flag, flag, logoFallback: !headshot ? flag : undefined };
+  return { headshot, flag };
 }
 
 /** Normalize stored team fields into separate headshot + flag for display. */

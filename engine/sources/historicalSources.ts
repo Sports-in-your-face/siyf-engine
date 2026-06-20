@@ -33,14 +33,11 @@ const parseEspnTennisHistory = createParseSeasonHistory(TENNIS_LABEL_INDEX, log)
 const parseEspnGolfHistory = createParseSeasonHistory(GOLF_LABEL_INDEX, log);
 const parseEspnFightsHistory = createParseSeasonHistory(FIGHTS_LABEL_INDEX, log);
 
-export function sportsReferenceSlug(playerId: string | undefined, playerName: string, nfl = false): string | null {
-  const id = playerId ?? '';
-  if (/^Q\d+$/i.test(id) || id.startsWith('wikidata:')) {
-    // External IDs — derive slug from display name only.
-  } else if (id && /^[a-z]{5}\d{2}[a-z]?$/i.test(id)) {
+export function sportsReferenceSlug(playerId: string, playerName: string, nfl = false): string | null {
+  if (/^[a-z]{5}\d{2}[a-z]?$/i.test(playerId)) {
     return nfl
-      ? id.charAt(0).toUpperCase() + id.slice(1)
-      : id.toLowerCase();
+      ? playerId.charAt(0).toUpperCase() + playerId.slice(1)
+      : playerId.toLowerCase();
   }
   const parts = playerName.trim().split(/\s+/);
   if (parts.length < 2) return null;
@@ -208,8 +205,6 @@ async function loadEspnHistoricalRows(
   fetchRaw: () => Promise<{ stats?: unknown; overview?: { statistics?: unknown; stats?: unknown } } | null>,
   parseRows: (raw: NonNullable<Awaited<ReturnType<typeof fetchRaw>>>) => PlayerSeasonRow[],
 ): Promise<PlayerSeasonRow[]> {
-  if (!player.id || !/^\d+$/.test(String(player.id))) return [];
-
   const key = cacheKey(cachePrefix, player.id);
   const cached = cacheGet<PlayerSeasonRow[]>(key);
   if (cached !== undefined) return cached;

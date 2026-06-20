@@ -27,30 +27,18 @@ function parseFighter(comp: any, statusState?: string): Team {
   };
 }
 
-function parseFightResult(details: any[], statusSource?: any): string | undefined {
-  for (const d of details ?? []) {
-    const text = d?.type?.text ?? '';
-    if (/^(KO|TKO|Submission|Decision|DQ|Draw|No Contest)/i.test(text)) return text;
-    if (/win/i.test(text) && d?.type?.detail) return d.type.detail;
-  }
+function parseFightResult(details: any[]): string | undefined {
   const winner = details?.find((d) => /winner/i.test(d?.type?.text ?? ''));
-  if (winner?.type?.detail) return winner.type.detail;
   if (winner?.type?.text) return winner.type.text.replace(/^Unofficial Winner\s*/i, '');
-  if (statusSource?.type?.detail && statusSource?.type?.state === 'post') {
-    const detail = statusSource.type.detail;
-    if (!/^final$/i.test(detail)) return detail;
-  }
-  return undefined;
+  const results = details?.find((d) => d?.type?.text === 'Results');
+  return results?.type?.text;
 }
 
 function parseFightEventLog(details: any[]): StatItem[] | undefined {
   if (!details?.length) return undefined;
-  return details.slice(0, 20).map((d) => ({
+  return details.slice(0, 15).map((d) => ({
     label: d.type?.text ?? 'Event',
-    value: d.athletesInvolved?.[0]?.displayName
-      ?? d.type?.detail
-      ?? d.type?.shortText
-      ?? '—',
+    value: d.athletesInvolved?.[0]?.displayName ?? '—',
   }));
 }
 
@@ -126,7 +114,7 @@ export function parseFightEvents(events: any[], org = 'UFC'): Game[] {
         const weightClass = competition.type?.abbreviation ?? competition.type?.text
           ?? (org === 'Boxing' ? 'Boxing' : undefined);
         const statusSource = competition?.status ?? event.status;
-        const fightResult = parseFightResult(competition.details ?? [], statusSource)
+        const fightResult = parseFightResult(competition.details ?? [])
           ?? (statusState === 'post' ? statusSource?.type?.detail : undefined);
         const subtitleRaw = [cardName, weightClass].filter(Boolean).join(' · ');
         const subtitle = isScoreboardNoiseText(subtitleRaw) ? undefined : subtitleRaw;

@@ -1,12 +1,15 @@
+import { createEngineLog } from '../core/engineUtils';
 import { enrichGameContext } from '../core/mergePayload';
-import { loadRssFeedItems, loadRssFeedsParallel } from '../core/rssFeedCache';
+import { loadRssFeedItems, loadRssFeedMap } from '../core/rssFeedCache';
 import {
   textMentionsPlayer,
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
-import { applyRosterInjuriesFromItems } from '../core/rssRumorUtils';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 import type { Game, Player, ResolvedTeam } from '../core/types';
+
+const log = createEngineLog('nhl-rss');
 
 export type NhlRssFeedRole =
   | 'context_headline'
@@ -39,7 +42,8 @@ function isNhlGame(game: Game): boolean {
 }
 
 function isGenericNewsHeadline(title: string): boolean {
-  return /power rankings|mock draft|weekly (?:recap|wrap)|rankings:|fantasy hockey/i.test(title);
+  return isScoreboardNoiseText(title)
+    || /power rankings|mock draft|weekly (?:recap|wrap)|rankings:|fantasy hockey/i.test(title);
 }
 
 function isPlayoffHeadline(title: string): boolean {
@@ -68,17 +72,66 @@ export async function enrichNhlGamesFromRss(games: Game[]): Promise<Game[]> {
   }
 
   const headlineFeeds = feedsByRole.get('context_headline') ?? [];
-  const headlineItems = await loadRssFeedsParallel('nhl-rss-feed', headlineFeeds, 25);
+  const badgeFeeds = feedsByRole.get('live_badge') ?? [];
+  const summaryFeeds = feedsByRole.get('team_notes') ?? [];
+
+  const feedItems = await loadRssFeedMap('nhl-rss-feed', NHL_RSS_FEEDS);
 
   return games.map((game) => {
-    if (!isNhlGame(game)) return game;
-    const hit = findTeamItem(headlineItems, game);
-    if (!hit) return game;
-    return enrichGameContext(game, {
-      headline: hit.title.slice(0, 100),
-      badge: hit.title.slice(0, 40).toUpperCase(),
-      priority: 250,
-    });
+    try {
+      if (!isNhlGame(game)) return game;
+      let enriched = game;
+
+      if (!enriched.context?.headline) {
+        for (const feed of headlineFeeds) {
+          const items = feedItems.get(feed.id) ?? [];
+          const hit = findTeamItem(items, game);
+          if (hit && !isScoreboardNoiseText(hit.title)) {
+            enriched = enrichGameContext(enriched, {
+              headline: hit.title,
+              priority: 300,
+            });
+            break;
+          }
+        }
+      }
+
+      if (game.statusState === 'in' && !enriched.context?.badge) {
+        for (const feed of badgeFeeds) {
+          const items = feedItems.get(feed.id) ?? [];
+          const hit = findTeamItem(items, game);
+          if (hit) {
+            enriched = enrichGameContext(enriched, {
+              badge: 'LIVE',
+              priority: 400,
+            });
+            break;
+          }
+        }
+      }
+
+      if (
+        !enriched.context?.seriesSummary
+        && (game.context?.phase === 'playoffs' || game.context?.phase === 'finals')
+      ) {
+        for (const feed of summaryFeeds) {
+          const items = feedItems.get(feed.id) ?? [];
+          const hit = findTeamItem(items, game);
+          if (hit && !isScoreboardNoiseText(hit.title)) {
+            enriched = enrichGameContext(enriched, {
+              seriesSummary: hit.title.slice(0, 120),
+              priority: 250,
+            });
+            break;
+          }
+        }
+      }
+
+      return enriched;
+    } catch (err) {
+      log('warn', 'enrichNhlGamesFromRss', `enrichment failed for ${game.id}`, err);
+      return game;
+    }
   });
 }
 
@@ -89,7 +142,17 @@ export async function enrichNhlRosterWithInjuries(roster: Player[]): Promise<Pla
   const injuryItems: RssItem[] = [];
   for (const feed of feeds) injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
 
-  return applyRosterInjuriesFromItems(roster, injuryItems);
+  return roster.map((player) => {
+    const hit = injuryItems.find((item) => {
+      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
+      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|gtd|inactive|day-to-day/i.test(text);
+    });
+    if (!hit) return player;
+    return {
+      ...player,
+      position: player.position.includes('·') ? player.position : `${player.position} · ${hit.title.slice(0, 40)}`,
+    };
+  });
 }
 
 export async function enrichNhlTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {
@@ -119,6 +182,7 @@ export async function nhlRssCrossCheckPlayoffHint(away: string, home: string): P
     const items = await getFeedItems(feed);
     const hit = items.find((item) => {
       const text = `${item.title} ${item.description ?? ''}`;
+      if (isScoreboardNoiseText(item.title)) return false;
       return isPlayoffHeadline(text)
         && textMentionsTeam(text, away, '')
         && textMentionsTeam(text, home, '');

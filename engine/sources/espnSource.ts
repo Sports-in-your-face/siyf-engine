@@ -8,7 +8,8 @@ import {
 import { profileForResource } from '../core/cacheTiers';
 import type { GameLiveState } from '../core/cacheTiers';
 import { fetchJsonResilient } from '../core/resilientFetch';
-import { espnSearchAthletesWithFallback } from './espnCoreSearch';
+import { fetchEspnScoreboardSelfPatch } from '../core/scoreboardSelfPatch';
+import { isEspnNumericEventId } from '../core/espnSummaryGuard';
 import type {
   BoxScorePlayer,
   GameBoxScore,
@@ -18,23 +19,28 @@ import type {
   Team,
 } from '../core/types';
 import { enrichTeam, resolveTeamLogo } from './teamRegistry';
-import { extractStandingsChildren, fetchEspnStandingsPayload } from './espnStandingsUtils';
-import { parseEspnRosterEntries } from './espnRosterUtils';
-import { parseEspnStatLeaders } from './espnStatLeaders';
+import { parseEspnRosterResponse } from './espnRoster';
+import { batchFetchPlayerStats, mergeRosterStats } from '../core/rosterSeasonStats';
+import type { Player } from '../../types';
 
 const BASE = '/api/espn/apis/site/v2/sports/basketball/nba';
 const COMMON = '/api/espn/apis/common/v3/sports/basketball/nba';
+const WNBA_BASE = '/api/espn/apis/site/v2/sports/basketball/wnba';
+const WNBA_COMMON = '/api/espn/apis/common/v3/sports/basketball/wnba';
 const STANDINGS_ALT = '/api/espn/apis/v2/sports/basketball/nba/standings';
+
+type BasketballLeague = 'nba' | 'wnba';
+
+export function basketballLeagueFromGame(game?: { sport?: string }): BasketballLeague {
+  return game?.sport === 'WNBA' ? 'wnba' : 'nba';
+}
 
 export async function espnScoreboard(dates?: string): Promise<any | null> {
   const key = cacheKey('espn', 'scoreboard', dates ?? 'today');
   return cachedFetch(
     key,
     profileForResource('scoreboard'),
-    ({ bypassCache }) => {
-      const url = dates ? `${BASE}/scoreboard?dates=${dates}` : `${BASE}/scoreboard`;
-      return fetchJsonResilient<any>(url, undefined, { label: 'espn-scoreboard', retries: 2, bypassCache });
-    },
+    () => fetchEspnScoreboardSelfPatch('BASKETBALL', dates),
     ['scoreboard', 'nba'],
   );
 }
@@ -51,6 +57,7 @@ export async function espnTeams(): Promise<any | null> {
 }
 
 export async function espnSummary(eventId: string, gameState?: GameLiveState): Promise<any | null> {
+  if (!isEspnNumericEventId(eventId)) return null;
   const key = cacheKey('espn', 'summary', eventId);
   const profile = profileForResource('summary', gameState);
   return cachedFetch(
@@ -65,6 +72,29 @@ export async function espnSummary(eventId: string, gameState?: GameLiveState): P
       }),
     [`game:${eventId}`],
   );
+}
+
+export async function espnWnbaSummary(eventId: string, gameState?: GameLiveState): Promise<any | null> {
+  const key = cacheKey('espn-wnba', 'summary', eventId);
+  const profile = profileForResource('summary', gameState);
+  return cachedFetch(
+    key,
+    profile,
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/summary?event=${eventId}`, undefined, {
+        label: `espn-wnba-summary-${eventId}`,
+        retries: 2,
+        timeout: 10_000,
+        bypassCache,
+      }),
+    [`game:${eventId}`, 'wnba'],
+  );
+}
+
+export function espnSummaryForGame(game: { id: string; statusState?: string; sport?: string }): Promise<any | null> {
+  return basketballLeagueFromGame(game) === 'wnba'
+    ? espnWnbaSummary(game.id, game.statusState as GameLiveState | undefined)
+    : espnSummary(game.id, game.statusState as GameLiveState | undefined);
 }
 
 export async function espnTeamSchedule(teamId: string): Promise<any | null> {
@@ -95,19 +125,51 @@ export async function espnTeamRoster(teamId: string): Promise<any | null> {
   );
 }
 
+export async function espnWnbaTeamRoster(teamId: string): Promise<any | null> {
+  const key = cacheKey('espn-wnba', 'roster', teamId);
+  return cachedFetch(
+    key,
+    profileForResource('roster'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/roster`, undefined, {
+        label: `espn-wnba-roster-${teamId}`,
+        bypassCache,
+      }),
+    [`team:${teamId}`, 'roster', 'wnba'],
+  );
+}
+
+function espnTeamRosterForLeague(teamId: string, league: BasketballLeague): Promise<any | null> {
+  return league === 'wnba' ? espnWnbaTeamRoster(teamId) : espnTeamRoster(teamId);
+}
+
+export async function espnWnbaTeamSchedule(teamId: string): Promise<any | null> {
+  const key = cacheKey('espn-wnba', 'schedule', teamId);
+  return cachedFetch(
+    key,
+    profileForResource('schedule'),
+    ({ bypassCache }) =>
+      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/schedule`, undefined, {
+        label: `espn-wnba-schedule-${teamId}`,
+        bypassCache,
+      }),
+    [`team:${teamId}`, 'schedule', 'wnba'],
+  );
+}
+
 export async function espnStandings(): Promise<StandingsGroup[]> {
   const key = cacheKey('espn', 'standings');
   const cached = cacheGet<StandingsGroup[]>(key);
   if (cached?.length) return cached;
 
-  const data = await fetchEspnStandingsPayload(
-    `${BASE}/standings`,
-    STANDINGS_ALT,
-    'espn-standings',
-  );
+  const data =
+    (await fetchJsonResilient<any>(`${BASE}/standings`, undefined, { label: 'espn-standings' })) ??
+    (await fetchJsonResilient<any>(STANDINGS_ALT, undefined, { label: 'espn-standings-alt' }));
+
   if (!data) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
-  const children = extractStandingsChildren(data);
+  const children = data.children ?? data.standings?.children ?? [];
+  if (!children.length) return cacheGetStale<StandingsGroup[]>(key) ?? [];
 
   const groups: StandingsGroup[] = children.map((conf: any) => ({
     name: conf.name ?? conf.abbreviation ?? 'Conference',
@@ -150,27 +212,11 @@ export async function espnAthlete(id: string): Promise<any | null> {
     profileForResource('athlete'),
     async ({ bypassCache }) => {
       const opts = { bypassCache };
-      const fetchStats = () =>
-        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, {
-          label: 'espn-athlete-stats',
-          ...opts,
-        }).catch(() => null);
-
       const [bio, overview, stats] = await Promise.all([
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}`, undefined, { label: 'espn-athlete-bio', ...opts }),
         fetchJsonResilient<any>(`${COMMON}/athletes/${id}/overview`, undefined, { label: 'espn-athlete-overview', ...opts }),
-        fetchStats(),
+        fetchJsonResilient<any>(`${COMMON}/athletes/${id}/stats`, undefined, { label: 'espn-athlete-stats', ...opts }),
       ]);
-
-      if (!bio && !overview) {
-        const siteV2 = await fetchJsonResilient<any>(
-          `${BASE}/athletes/${id}`,
-          undefined,
-          { label: 'espn-athlete-site-v2', ...opts },
-        );
-        if (siteV2) return { bio: siteV2, overview: siteV2, stats: stats ?? null };
-      }
-
       if (!bio && !overview && !stats) return null;
       return { bio, overview, stats };
     },
@@ -178,25 +224,37 @@ export async function espnAthlete(id: string): Promise<any | null> {
   );
 }
 
+export async function espnWnbaAthlete(id: string): Promise<any | null> {
+  const key = cacheKey('espn-wnba', 'athlete', id);
+  return cachedFetch(
+    key,
+    profileForResource('athlete'),
+    async ({ bypassCache }) => {
+      const opts = { bypassCache };
+      const [bio, overview, stats] = await Promise.all([
+        fetchJsonResilient<any>(`${WNBA_COMMON}/athletes/${id}`, undefined, { label: 'espn-wnba-athlete-bio', ...opts }),
+        fetchJsonResilient<any>(`${WNBA_COMMON}/athletes/${id}/overview`, undefined, { label: 'espn-wnba-athlete-overview', ...opts }),
+        fetchJsonResilient<any>(`${WNBA_COMMON}/athletes/${id}/stats`, undefined, { label: 'espn-wnba-athlete-stats', ...opts }),
+      ]);
+      if (!bio && !overview && !stats) return null;
+      return { bio, overview, stats };
+    },
+    [`player:${id}`, 'wnba'],
+  );
+}
+
 export async function espnSearchAthletes(query: string): Promise<any[]> {
   const key = cacheKey('espn', 'search', query.toLowerCase());
-  const encoded = encodeURIComponent(query.trim());
   const result = await cachedFetch<any[]>(
     key,
     profileForResource('search'),
-    async () => {
-      const items = await espnSearchAthletesWithFallback(
-        query,
-        { sport: 'basketball', league: 'nba', label: 'nba' },
-        `${COMMON}/athletes?search=${encoded}&limit=10`,
-      );
-      if (items.length) return items;
-      const siteV2 = await fetchJsonResilient<any>(
-        `${BASE}/athletes?search=${encoded}&limit=10`,
+    async ({ bypassCache }) => {
+      const data = await fetchJsonResilient<any>(
+        `${COMMON}/athletes?search=${encodeURIComponent(query)}&limit=10`,
         undefined,
-        { label: 'espn-athlete-search-site-v2', retries: 0, timeout: 8_000 },
+        { label: 'espn-athlete-search', bypassCache },
       );
-      return siteV2?.items ?? siteV2?.athletes ?? [];
+      return data?.items ?? data?.athletes ?? [];
     },
     ['search'],
   );
@@ -297,33 +355,37 @@ function collectFeaturedPlayerIds(summary: any, teamId: string): string[] {
 
 async function fetchSeasonAveragesForPlayers(
   playerIds: string[],
+  league: BasketballLeague = 'nba',
 ): Promise<Map<string, StatItem[]>> {
-  const result = new Map<string, StatItem[]>();
-  const BATCH = 4;
+  const fetchAthlete = league === 'wnba' ? espnWnbaAthlete : espnAthlete;
+  return batchFetchPlayerStats(playerIds, async (id) => {
+    const data = await fetchAthlete(id);
+    const avgs = parseCurrentSeasonAverages(data?.stats);
+    return avgs.some((s) => s.value !== '—') ? avgs : null;
+  });
+}
 
-  for (let i = 0; i < playerIds.length; i += BATCH) {
-    const batch = playerIds.slice(i, i + BATCH);
-    await Promise.all(
-      batch.map(async (id) => {
-        try {
-          const data = await espnAthlete(id);
-          const avgs = parseCurrentSeasonAverages(data?.stats);
-          if (avgs.some((s) => s.value !== '—')) result.set(id, avgs);
-        } catch {
-          /* skip failed athlete fetch */
-        }
-      }),
-    );
-  }
+export async function enrichEspnNbaRosterSeasonStats(roster: Player[]): Promise<Player[]> {
+  const needsStats = roster.filter((p) => !p.stats.length);
+  if (!needsStats.length) return roster;
 
-  return result;
+  const nbaIds = needsStats.filter((p) => p.leagueSport !== 'WNBA').map((p) => p.id);
+  const wnbaIds = needsStats.filter((p) => p.leagueSport === 'WNBA').map((p) => p.id);
+  const [nbaStats, wnbaStats] = await Promise.all([
+    nbaIds.length ? fetchSeasonAveragesForPlayers(nbaIds, 'nba') : Promise.resolve(new Map()),
+    wnbaIds.length ? fetchSeasonAveragesForPlayers(wnbaIds, 'wnba') : Promise.resolve(new Map()),
+  ]);
+  const statsById = new Map<string, StatItem[]>([...nbaStats, ...wnbaStats]);
+  return mergeRosterStats(roster, statsById);
 }
 
 export async function buildEspnPreGameBoxScore(
   summary: any,
   awayTeam: Team,
   homeTeam: Team,
+  game?: { sport?: string },
 ): Promise<GameBoxScore | undefined> {
+  const league = basketballLeagueFromGame(game);
   const competitors: any[] = summary?.header?.competitions?.[0]?.competitors ?? [];
   if (!competitors.length) return undefined;
 
@@ -333,30 +395,23 @@ export async function buildEspnPreGameBoxScore(
     if (!teamId) return null;
 
     const featuredIds = collectFeaturedPlayerIds(summary, teamId);
-    const [rosterData, seasonAvgs] = await Promise.all([
-      espnTeamRoster(teamId),
-      fetchSeasonAveragesForPlayers(featuredIds),
-    ]);
-
+    const rosterData = await espnTeamRosterForLeague(teamId, league);
     const roster = parseEspnRoster(rosterData);
-    if (!roster.length && !featuredIds.length) return null;
+    if (!roster.length) return null;
 
-    const rosterById = new Map(roster.map((p) => [p.id, p]));
-    const orderedIds = featuredIds.length
-      ? featuredIds
-      : roster.slice(0, 8).map((p) => p.id);
+    const seasonAvgs = await fetchSeasonAveragesForPlayers(
+      featuredIds.length
+        ? [...new Set([...featuredIds, ...roster.slice(0, 5).map((p) => p.id)])]
+        : roster.slice(0, 5).map((p) => p.id),
+      league,
+    );
+    const featuredSet = new Set(featuredIds);
 
-    const players: BoxScorePlayer[] = orderedIds
-      .map((id, index) => {
-        const base = rosterById.get(id);
-        if (!base) return null;
-        return {
-          ...base,
-          starter: index < 5,
-          stats: seasonAvgs.get(id) ?? emptySeasonPreviewStats(),
-        };
-      })
-      .filter(Boolean) as BoxScorePlayer[];
+    const players: BoxScorePlayer[] = roster.map((base, index) => ({
+      ...base,
+      starter: featuredSet.has(base.id) ? featuredIds.indexOf(base.id) < 5 : index < 5,
+      stats: seasonAvgs.get(base.id) ?? emptySeasonPreviewStats(),
+    }));
 
     if (!players.length) return null;
 
@@ -444,7 +499,7 @@ export function parseEspnPlays(summary: any): PlayEvent[] {
   const plays = summary?.plays ?? [];
   if (!Array.isArray(plays) || !plays.length) return [];
 
-  return [...plays].reverse().slice(0, 150).map((p: any, idx: number) => ({
+  return [...plays].reverse().slice(0, 40).map((p: any, idx: number) => ({
     id: String(p.id ?? idx),
     period: p.period?.displayValue ?? (p.period?.number ? `Q${p.period.number}` : ''),
     clock: p.clock?.displayValue ?? '',
@@ -520,92 +575,14 @@ export function parseEspnRoster(data: any): Array<{
   position: string;
   number?: string;
   headshot?: string;
+  height?: string;
+  weight?: string;
+  age?: string;
+  injuryStatus?: string;
+  stats?: StatItem[];
 }> {
-  return parseEspnRosterEntries(data);
-}
-
-const NBA_STAT_ICONS: Record<string, string> = {
-  pointsPerGame: 'ph-basketball',
-  reboundsPerGame: 'ph-arrows-out',
-  assistsPerGame: 'ph-hand-pointing',
-  stealsPerGame: 'ph-shield-check',
-  blocksPerGame: 'ph-wall',
-  fieldGoalPercentage: 'ph-target',
-  '3PointPct': 'ph-crosshair',
-};
-
-export async function espnNbaLeaders(): Promise<unknown | null> {
-  const key = cacheKey('espn', 'leaders');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<unknown>('/api/espn/apis/site/v3/sports/basketball/nba/leaders?limit=5', undefined, {
-        label: 'espn-nba-leaders',
-        retries: 2,
-        bypassCache,
-      }),
-    ['standings', 'nba', 'leaders'],
-  );
-}
-
-export function parseEspnNbaStatLeaders(data: unknown) {
-  const nbaLogo = (abbr: string) => `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
-  return parseEspnStatLeaders(data, {
-    categories: [
-      { key: 'pointsPerGame', icon: NBA_STAT_ICONS.pointsPerGame },
-      { key: 'reboundsPerGame', icon: NBA_STAT_ICONS.reboundsPerGame },
-      { key: 'assistsPerGame', icon: NBA_STAT_ICONS.assistsPerGame },
-      { key: 'stealsPerGame', icon: NBA_STAT_ICONS.stealsPerGame },
-      { key: 'blocksPerGame', icon: NBA_STAT_ICONS.blocksPerGame },
-      { key: 'fieldGoalPercentage', icon: NBA_STAT_ICONS.fieldGoalPercentage, label: 'FG%' },
-      { key: '3PointPct', icon: NBA_STAT_ICONS['3PointPct'], label: '3PT%' },
-    ],
-    teamLogo: nbaLogo,
-  });
-}
-
-const WNBA_BASE = '/api/espn/apis/site/v2/sports/basketball/wnba';
-
-export async function espnWnbaTeams(): Promise<any | null> {
-  const key = cacheKey('espn', 'wnba-teams');
-  return cachedFetch(
-    key,
-    profileForResource('teams'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${WNBA_BASE}/teams`, undefined, {
-        label: 'espn-wnba-teams',
-        retries: 2,
-        bypassCache,
-      }),
-    ['teams', 'wnba'],
-  );
-}
-
-export async function espnWnbaTeamRoster(teamId: string): Promise<any | null> {
-  const key = cacheKey('espn', 'wnba-roster', teamId);
-  return cachedFetch(
-    key,
-    profileForResource('roster'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/roster`, undefined, {
-        label: `espn-wnba-roster-${teamId}`,
-        bypassCache,
-      }),
-    [`team:${teamId}`, 'roster', 'wnba'],
-  );
-}
-
-export async function espnWnbaTeamSchedule(teamId: string): Promise<any | null> {
-  const key = cacheKey('espn', 'wnba-schedule', teamId);
-  return cachedFetch(
-    key,
-    profileForResource('schedule'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<any>(`${WNBA_BASE}/teams/${teamId}/schedule`, undefined, {
-        label: `espn-wnba-schedule-${teamId}`,
-        bypassCache,
-      }),
-    [`team:${teamId}`, 'schedule', 'wnba'],
-  );
+  return parseEspnRosterResponse(data).map((p) => ({
+    ...p,
+    stats: p.stats.length ? p.stats : undefined,
+  }));
 }

@@ -1,15 +1,12 @@
 import type { Game, SpecialGameConfidence, SpecialGameExplanation, SpecialGameInfo, SpecialGameKind } from '../../types';
-import { matchCuratedEvent, resolveSpecialEventLogo } from './specialGameCatalog';
+import { cdnUrl } from '../../config/siyfCdn';
+import { matchCuratedEvent } from './specialGameCatalog';
 
 const MARQUEE_KINDS = new Set<SpecialGameKind>([
   'super_bowl',
   'world_series',
-  'mls_cup',
-  'ufc_title',
-  'wbc_title',
   'nba_finals',
   'wnba_finals',
-  'stanley_cup',
   'all_star',
   'world_cup',
   'euro',
@@ -55,14 +52,6 @@ const PATTERN_RULES: PatternRule[] = [
     source: 'pattern:world_series',
   },
   {
-    kind: 'mls_cup',
-    label: 'MLS Cup',
-    patterns: [/mls\s*cup/i],
-    sports: ['SOCCER'],
-    weight: 92,
-    source: 'pattern:mls_cup',
-  },
-  {
     kind: 'nba_finals',
     label: 'NBA Finals',
     patterns: [/nba\s*finals/i],
@@ -77,14 +66,6 @@ const PATTERN_RULES: PatternRule[] = [
     sports: ['BASKETBALL'],
     weight: 90,
     source: 'pattern:wnba_finals',
-  },
-  {
-    kind: 'stanley_cup',
-    label: 'Stanley Cup Final',
-    patterns: [/stanley\s*cup(\s*final)?/i],
-    sports: ['HOCKEY'],
-    weight: 92,
-    source: 'pattern:stanley_cup',
   },
   {
     kind: 'all_star',
@@ -192,8 +173,6 @@ function gatherSearchText(game: Game): string {
     game.context?.round,
     game.context?.badge,
     game.subtitle,
-    game.tournamentName,
-    game.weightClass,
     game.leagueSlug,
     game.status,
     game.away.name,
@@ -247,11 +226,7 @@ function contextHits(game: Game): RuleHit[] {
       let label = ctx.round ?? ctx.headline ?? 'Final';
       let weight = 70;
 
-      if (/mls\s*cup/i.test(`${ctx.headline ?? ''} ${ctx.round ?? ''} ${game.subtitle ?? ''}`)) {
-        kind = 'mls_cup';
-        label = 'MLS Cup';
-        weight = 95;
-      } else if (slug.includes('uefa.champions')) {
+      if (slug.includes('uefa.champions')) {
         kind = 'champions_league_final';
         label = 'Champions League Final';
         weight = 88;
@@ -283,14 +258,6 @@ function contextHits(game: Game): RuleHit[] {
         label: ctx.round ?? 'World Series',
         source: 'context:finals',
         signal: `phase=finals sport=BASEBALL round=${ctx.round ?? 'unknown'}`,
-      });
-    } else if (sport === 'HOCKEY') {
-      hits.push({
-        kind: 'stanley_cup',
-        weight: /stanley\s*cup/i.test(`${ctx.headline ?? ''} ${ctx.round ?? ''}`) ? 95 : 72,
-        label: ctx.round ?? 'Stanley Cup Final',
-        source: 'context:finals',
-        signal: `phase=finals sport=HOCKEY round=${ctx.round ?? 'unknown'}`,
       });
     }
   }
@@ -347,37 +314,6 @@ function patternHits(game: Game, text: string): RuleHit[] {
   }
 
   return hits;
-}
-
-function fightTitleHits(game: Game, text: string): RuleHit[] {
-  const combined = `${text} ${game.weightClass ?? ''}`.toLowerCase();
-  if (!/championship|title\s*fight/.test(combined)) return [];
-
-  const sport = (game.sport ?? '').toUpperCase();
-  const slug = (game.leagueSlug ?? '').toLowerCase();
-  const isBoxing = sport === 'BOXING' || slug.includes('box') || /\bwbc\b/.test(combined);
-
-  if (isBoxing) {
-    return [{
-      kind: 'wbc_title',
-      weight: 90,
-      label: 'WBC Title Fight',
-      source: 'pattern:wbc_title',
-      signal: 'championship bout',
-    }];
-  }
-
-  if (sport === 'UFC' || slug === 'ufc' || sport === 'FIGHTS') {
-    return [{
-      kind: 'ufc_title',
-      weight: 90,
-      label: 'UFC Title Fight',
-      source: 'pattern:ufc_title',
-      signal: 'championship bout',
-    }];
-  }
-
-  return [];
 }
 
 function leagueSlugHits(game: Game): RuleHit[] {
@@ -471,7 +407,7 @@ function defaultRegular(): SpecialGameInfo {
 
 export function explainSpecialGame(game: Game, when = new Date()): SpecialGameExplanation {
   const text = gatherSearchText(game);
-  const hits = [...contextHits(game), ...patternHits(game, text), ...fightTitleHits(game, text), ...leagueSlugHits(game)];
+  const hits = [...contextHits(game), ...patternHits(game, text), ...leagueSlugHits(game)];
 
   const signals = hits.map((h) => ({ id: h.source, weight: h.weight, detail: h.signal }));
   const sources = [...new Set(hits.map((h) => h.source))];
@@ -494,11 +430,15 @@ export function explainSpecialGame(game: Game, when = new Date()): SpecialGameEx
     return { ...defaultRegular(), signals };
   }
 
-  let eventLogo = resolveSpecialEventLogo(curated, best.kind);
+  let eventLogo: string | undefined;
+  if (curated?.logo && curated.enabled !== false) {
+    const logo = curated.logo;
+    eventLogo = logo.startsWith('http') ? logo : cdnUrl(logo);
+  }
 
   const info = finalizeInfo(best, game, sources, eventLogo);
 
-  if (eventLogo && !info.isSpecial) {
+  if (eventLogo && info.confidence !== 'high') {
     delete info.eventLogo;
   }
 

@@ -103,47 +103,47 @@ export function parseWnbaEspnRaw(raw: any): SupplementalParseResult {
 }
 
 async function fetchWnbaOfficial(): Promise<Game[]> {
-  const url = externalFetchUrl(
-    'https://cdn.wnba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json',
-  );
-  const raw = await fetchJsonResilient<any>(url, undefined, {
-    label: 'wnba-official',
-    retries: 1,
-    timeout: 5_000,
-  });
-  const events = raw?.scoreboard?.games ?? raw?.games ?? raw?.events;
-  if (!Array.isArray(events) || !events.length) return [];
-
-  const games = events.map((g: any) => {
-    const away = g.awayTeam ?? g.away ?? {};
-    const home = g.homeTeam ?? g.home ?? {};
-    const state = String(g.gameStatus ?? g.status ?? '').toLowerCase();
-    const statusState =
-      state.includes('final') ? 'post' as const
-      : state.includes('in') || state.includes('live') ? 'in' as const
-      : 'pre' as const;
-    return {
-      id: String(g.gameId ?? g.id ?? `${away.teamTricode}-${home.teamTricode}`),
-      sport: 'WNBA',
-      status: g.gameStatusText ?? g.status ?? 'Scheduled',
-      statusState,
-      clock: g.period != null ? `Q${g.period}` : statusState === 'post' ? 'Final' : '—',
-      away: {
-        name: coerceDisplayString(away.teamName ?? away.name, away.teamTricode ?? 'Away'),
-        abbr: coerceDisplayString(away.teamTricode ?? away.abbr, 'AWAY'),
-        score: parseDisplayScore(away.score ?? away.points),
-        logo: coerceDisplayString(away.teamLogo ?? away.logo),
-      },
-      home: {
-        name: coerceDisplayString(home.teamName ?? home.name, home.teamTricode ?? 'Home'),
-        abbr: coerceDisplayString(home.teamTricode ?? home.abbr, 'HOME'),
-        score: parseDisplayScore(home.score ?? home.points),
-        logo: coerceDisplayString(home.teamLogo ?? home.logo),
-      },
-    } satisfies Game;
-  });
-  finishParserBatch('WNBA', games, { rawCount: events.length, skipped: 0 });
-  return games;
+  const urls = [
+    externalFetchUrl('https://www.wnba.com/api/live/scoreboard'),
+    externalFetchUrl('https://cdn.wnba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json'),
+  ];
+  for (const url of urls) {
+    const raw = await fetchJsonResilient<any>(url, undefined, { label: 'wnba-official', retries: 1, timeout: 5_000 });
+    const events = raw?.scoreboard?.games ?? raw?.games ?? raw?.events;
+    if (Array.isArray(events) && events.length) {
+      const games = events.map((g: any) => {
+        const away = g.awayTeam ?? g.away ?? {};
+        const home = g.homeTeam ?? g.home ?? {};
+        const state = String(g.gameStatus ?? g.status ?? '').toLowerCase();
+        const statusState =
+          state.includes('final') ? 'post' as const
+          : state.includes('in') || state.includes('live') ? 'in' as const
+          : 'pre' as const;
+        return {
+          id: String(g.gameId ?? g.id ?? `${away.teamTricode}-${home.teamTricode}`),
+          sport: 'WNBA',
+          status: g.gameStatusText ?? g.status ?? 'Scheduled',
+          statusState,
+          clock: g.period != null ? `Q${g.period}` : statusState === 'post' ? 'Final' : '—',
+          away: {
+            name: coerceDisplayString(away.teamName ?? away.name, away.teamTricode ?? 'Away'),
+            abbr: coerceDisplayString(away.teamTricode ?? away.abbr, 'AWAY'),
+            score: parseDisplayScore(away.score ?? away.points),
+            logo: coerceDisplayString(away.teamLogo ?? away.logo),
+          },
+          home: {
+            name: coerceDisplayString(home.teamName ?? home.name, home.teamTricode ?? 'Home'),
+            abbr: coerceDisplayString(home.teamTricode ?? home.abbr, 'HOME'),
+            score: parseDisplayScore(home.score ?? home.points),
+            logo: coerceDisplayString(home.teamLogo ?? home.logo),
+          },
+        } satisfies Game;
+      });
+      finishParserBatch('WNBA', games, { rawCount: events.length, skipped: 0 });
+      return games;
+    }
+  }
+  return [];
 }
 
 async function fetchWnbaEspn(): Promise<Game[]> {

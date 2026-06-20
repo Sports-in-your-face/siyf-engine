@@ -8,7 +8,6 @@ import { fetchEspnCustomScoreboardSelfPatch } from '../core/scoreboardSelfPatch'
 import type { Game, StatItem } from '../../types';
 import { parseGolfEvents, parseGolfCompetitor } from '../../services/parsers/parseGolfEvents';
 import { dedupeGamesById } from '../core/mergeGames';
-import { espnCoreSearchAthletes } from './espnCoreSearch';
 
 const PGA_BASE = '/api/espn/apis/site/v2/sports/golf/pga';
 const LPGA_BASE = '/api/espn/apis/site/v2/sports/golf/lpga';
@@ -69,8 +68,6 @@ export function parseGolfScoreboardEvents(raw: unknown): ReturnType<typeof parse
 }
 
 export async function espnGolfAthlete(playerId: string, tour?: 'PGA' | 'LPGA'): Promise<any | null> {
-  if (!playerId || !/^\d+$/.test(String(playerId))) return null;
-
   const key = cacheKey('espn-golf', 'athlete', tour ?? 'auto', playerId);
   return cachedFetch(
     key,
@@ -119,12 +116,7 @@ export async function espnGolfSearchAthletes(query: string): Promise<any[]> {
           merged.push(item);
         }
       }
-      if (merged.length) return merged;
-
-      return espnCoreSearchAthletes(query, [
-        { sport: 'golf', league: 'pga', label: 'pga' },
-        { sport: 'golf', league: 'lpga', label: 'lpga' },
-      ]);
+      return merged;
     },
     ['search'],
   );
@@ -272,115 +264,4 @@ export function parseEspnGolfTopPerformers(summary: any): Array<{
 
 export function parseEspnGolfRoster(): Array<{ id: string; name: string; position: string }> {
   return [];
-}
-
-export interface GolfStatLeaderEntry {
-  name: string;
-  initials: string;
-  nat: string;
-  value: string;
-}
-
-export interface GolfStatLeaderCategory {
-  label: string;
-  icon: string;
-  leaders: GolfStatLeaderEntry[];
-}
-
-const GOLF_STAT_ICONS: Record<string, string> = {
-  scoringAverage: 'ph-target',
-  yardsPerDrive: 'ph-lightning',
-  greensInRegPct: 'ph-flag',
-  strokesPerHole: 'ph-golf',
-  birdiesPerRound: 'ph-bird',
-  wins: 'ph-trophy',
-  cupPoints: 'ph-star',
-  driveAccuracyPct: 'ph-crosshair',
-  officialAmount: 'ph-currency-dollar',
-};
-
-function golferInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
-
-export async function espnGolfLeaders(tour: 'PGA' | 'LPGA' = 'PGA'): Promise<unknown | null> {
-  const slug = tour.toLowerCase();
-  const key = cacheKey('espn-golf', slug, 'leaders');
-  return cachedFetch(
-    key,
-    profileForResource('standings'),
-    ({ bypassCache }) =>
-      fetchJsonResilient<unknown>(
-        `/api/espn/apis/site/v3/sports/golf/${slug}/leaders?limit=5`,
-        undefined,
-        { label: `espn-golf-${slug}-leaders`, retries: 2, bypassCache },
-      ),
-    ['standings', slug, 'leaders'],
-  );
-}
-
-export function parseEspnGolfStatLeaders(data: unknown): GolfStatLeaderCategory[] | null {
-  const categories = (data as { leaders?: { categories?: unknown[] } })?.leaders?.categories ?? [];
-  if (!Array.isArray(categories) || !categories.length) return null;
-
-  const labelOverrides: Record<string, string> = {
-    scoringAverage: 'Scoring Average',
-    yardsPerDrive: 'Driving Distance',
-    strokesPerHole: 'Putts Per Hole',
-    greensInRegPct: 'Greens in Regulation',
-    cupPoints: 'FedEx Cup Points',
-    officialAmount: 'Money List',
-    driveAccuracyPct: 'Driving Accuracy',
-  };
-
-  const preferred = [
-    'scoringAverage',
-    'yardsPerDrive',
-    'greensInRegPct',
-    'strokesPerHole',
-    'birdiesPerRound',
-    'wins',
-    'cupPoints',
-    'driveAccuracyPct',
-    'officialAmount',
-  ];
-
-  const mapped: GolfStatLeaderCategory[] = [];
-
-  for (const key of preferred) {
-    const cat = categories.find((c: { name?: string }) => c.name === key) as {
-      displayName?: string;
-      name?: string;
-      leaders?: Array<{
-        displayValue?: string;
-        value?: string | number;
-        athlete?: {
-          displayName?: string;
-          citizenship?: string;
-          flag?: { alt?: string };
-        };
-      }>;
-    } | undefined;
-    if (!cat?.leaders?.length) continue;
-
-    mapped.push({
-      label: labelOverrides[key] ?? cat.displayName ?? cat.name ?? key,
-      icon: GOLF_STAT_ICONS[key] ?? 'ph-chart-bar',
-      leaders: cat.leaders.slice(0, 5).map((l) => {
-        const name = l.athlete?.displayName ?? '—';
-        return {
-          name,
-          initials: golferInitials(name),
-          nat: l.athlete?.citizenship ?? l.athlete?.flag?.alt ?? 'INT',
-          value: String(l.displayValue ?? l.value ?? '—'),
-        };
-      }),
-    });
-  }
-
-  return mapped.length ? mapped : null;
 }

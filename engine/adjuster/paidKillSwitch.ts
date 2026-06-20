@@ -1,6 +1,5 @@
 import type { PaidApiId } from '../core/paidApiTelemetry';
 import { getPaidApiSessionCounts } from '../core/paidApiTelemetry';
-import { isSiyfPremium } from '../../config/siyfApi';
 import {
   getPaidApiDailyCount,
   getPaidApiDailyCounts,
@@ -22,11 +21,8 @@ function envInt(key: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Daily cap for guest/free sessions. */
+/** Global daily cap per user — generous for real use, blocks runaway abuse. */
 export const PAID_API_DAILY_LIMIT = envInt('VITE_PAID_API_DAILY_LIMIT', 200);
-
-/** Daily cap for premium members — server enforces 500/day independently via JWT. */
-export const PAID_API_PREMIUM_DAILY_LIMIT = envInt('VITE_PAID_API_PREMIUM_DAILY_LIMIT', 500);
 
 function buildApiLimit(
   api: PaidApiId,
@@ -95,16 +91,13 @@ export function canUsePaidApi(api: PaidApiId): PaidApiGateResult {
   const hourlyCount = getHourlyCount(api);
   const dailyCount = getPaidApiDailyCount();
 
-  // Premium members have a higher client-side budget; server enforces independently via JWT.
-  const effectiveDailyLimit = isSiyfPremium() ? PAID_API_PREMIUM_DAILY_LIMIT : PAID_API_DAILY_LIMIT;
+  const base = { sessionCount, hourlyCount, dailyCount, dailyLimit: PAID_API_DAILY_LIMIT, limit };
 
-  const base = { sessionCount, hourlyCount, dailyCount, dailyLimit: effectiveDailyLimit, limit };
-
-  if (dailyCount >= effectiveDailyLimit) {
+  if (dailyCount >= PAID_API_DAILY_LIMIT) {
     return {
       ...base,
       allowed: false,
-      reason: `daily limit reached (${dailyCount}/${effectiveDailyLimit}) — resets at midnight; free feeds still work`,
+      reason: `daily limit reached (${dailyCount}/${PAID_API_DAILY_LIMIT}) — resets at midnight; free feeds still work`,
     };
   }
 
@@ -162,7 +155,7 @@ if (typeof window !== 'undefined') {
   window.__siyfPaidKillSwitch = {
     canUse: canUsePaidApi,
     limits: PAID_API_LIMITS,
-    dailyLimit: isSiyfPremium() ? PAID_API_PREMIUM_DAILY_LIMIT : PAID_API_DAILY_LIMIT,
+    dailyLimit: PAID_API_DAILY_LIMIT,
     getDaily: getPaidApiDailyCounts,
     reset: resetPaidKillSwitch,
   };

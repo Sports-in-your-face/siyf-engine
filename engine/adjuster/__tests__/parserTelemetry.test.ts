@@ -45,16 +45,6 @@ describe('parser telemetry wiring', () => {
     expect(history[0].rawCount).toBe(1);
   });
 
-  it('parses pre-scheduled GOLF events without a field yet', () => {
-    const fixture = loadGoldenFixture('golf/pga-pre-scheduled.json');
-    const games = parseGolfEvents([fixture], 'PGA');
-    expect(games).toHaveLength(1);
-    expect(games[0].statusState).toBe('pre');
-    expect(games[0].tournamentName).toBe('U.S. Open');
-    const history = getParseBatchHistory('GOLF');
-    expect(history[0].parseRate).toBe(1);
-  });
-
   it('records FIGHTS batch from parseFightEvents', () => {
     const fixture = loadGoldenFixture('fights/ufc-bout-pre.json');
     parseFightEvents([fixture], 'UFC');

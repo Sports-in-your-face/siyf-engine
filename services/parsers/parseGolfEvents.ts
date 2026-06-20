@@ -60,15 +60,14 @@ function deriveThru(comp: any): string | undefined {
 
 export function parseGolfCompetitor(comp: any): LeaderboardEntry {
   const athlete = comp.athlete ?? {};
-  const athleteId = athlete.id ?? comp.id;
   const rounds = (comp.linescores ?? [])
     .filter((l: any) => l.period && l.period <= 4)
     .map((l: any) => l.displayValue ?? parseScore(l.value) ?? '—');
 
   const toPar = parseToPar(comp);
   return {
-    id: String(athleteId ?? athlete.displayName ?? 'unknown'),
-    name: athlete.displayName ?? athlete.shortName ?? athlete.fullName ?? 'TBD',
+    id: String(comp.id ?? athlete.id ?? athlete.displayName),
+    name: athlete.displayName ?? athlete.shortName ?? 'TBD',
     position: comp.order ?? 0,
     score: parseTotalStrokes(comp),
     toPar,
@@ -118,47 +117,8 @@ export function parseGolfEvents(events: any[], tour = 'PGA'): Game[] {
   for (const event of events) {
     batch.rawCount += 1;
     try {
-      const competition = event.competitions?.[0]
-        ?? (Array.isArray(event.competitors) && event.competitors.length
-          ? { competitors: event.competitors, status: event.status }
-          : null);
+      const competition = event.competitions?.[0];
       if (!competition?.competitors?.length) {
-        const state = competition?.status?.type?.state ?? event.status?.type?.state;
-        if (state === 'pre') {
-          const { status, statusState, clock } = parseStatus(event);
-          const timingResult = enrichGameWithTiming(
-            { statusState, clock },
-            extractEspnStartCandidates(event, competition),
-          );
-          const venue = event.venue?.displayName ?? event.courses?.[0]?.name;
-          const tournamentName = event.name ?? event.shortName ?? 'Tournament';
-          const broadcast = event.broadcasts?.[0]?.names?.join(', ')
-            ?? competition?.broadcasts?.[0]?.names?.join(', ');
-          const context = parseGolfGameContext(tournamentName, broadcast, statusState);
-          const subtitle = context?.headline ?? [tournamentName, venue].filter(Boolean).join(' · ');
-
-          games.push({
-            id: String(event.id),
-            sport: tour,
-            status,
-            statusState,
-            clock: timingResult.clock,
-            timing: timingResult.timing,
-            away: {
-              name: tournamentName,
-              abbr: tour.slice(0, 3).toUpperCase(),
-              score: null,
-            },
-            home: { name: 'Field', abbr: 'FLD', score: null },
-            leaderboard: [],
-            tournamentName,
-            subtitle,
-            venue,
-            broadcast,
-            context,
-          });
-          continue;
-        }
         batch.skipped += 1;
         continue;
       }

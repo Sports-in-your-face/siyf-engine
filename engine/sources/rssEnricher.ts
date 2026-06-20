@@ -1,12 +1,11 @@
 import { createEngineLog } from '../core/engineUtils';
-import { loadRssFeedItems } from '../core/rssFeedCache';
+import { loadRssFeedItems, loadRssFeedMap } from '../core/rssFeedCache';
 import {
   textMentionsPlayer,
   textMentionsTeam,
   type RssItem,
 } from '../core/rss';
-import { applyRosterInjuriesFromItems, mapRssRumorItem } from '../core/rssRumorUtils';
-import type { PlayerRumor } from '../../types';
+import { isScoreboardNoiseText } from '../../utils/scoreboardNoise';
 import { enrichGameContext } from '../core/mergePayload';
 import type { Game, Player, ResolvedTeam } from '../core/types';
 
@@ -47,7 +46,8 @@ function isNbaGame(game: Game): boolean {
 }
 
 function isGenericNewsHeadline(title: string): boolean {
-  return /mvp rankings|power rankings|trade deadline|mock draft|weekly (?:recap|wrap)|rankings:/i.test(title);
+  return isScoreboardNoiseText(title)
+    || /mvp rankings|power rankings|trade deadline|mock draft|weekly (?:recap|wrap)|rankings:|fantasy basketball/i.test(title);
 }
 
 function isFinalsHeadline(title: string): boolean {
@@ -79,12 +79,7 @@ export async function enrichGamesFromRss(games: Game[]): Promise<Game[]> {
   const badgeFeeds = feedsByRole.get('live_badge') ?? [];
   const summaryFeeds = feedsByRole.get('series_summary') ?? [];
 
-  const feedItems = new Map<string, RssItem[]>();
-  await Promise.all(
-    RSS_FEEDS.map(async (feed) => {
-      feedItems.set(feed.id, await getFeedItems(feed));
-    }),
-  );
+  const feedItems = await loadRssFeedMap('rss-feed', RSS_FEEDS);
 
   return games.map((game) => {
       try {
@@ -95,7 +90,7 @@ export async function enrichGamesFromRss(games: Game[]): Promise<Game[]> {
           for (const feed of headlineFeeds) {
             const items = feedItems.get(feed.id) ?? [];
             const hit = findTeamItem(items, game);
-            if (hit) {
+            if (hit && !isScoreboardNoiseText(hit.title)) {
               enriched = enrichGameContext(enriched, {
                 headline: hit.title,
                 priority: 300,
@@ -111,8 +106,7 @@ export async function enrichGamesFromRss(games: Game[]): Promise<Game[]> {
             const hit = findTeamItem(items, game);
             if (hit) {
               enriched = enrichGameContext(enriched, {
-                badge: 'BREAKING',
-                headline: hit.title,
+                badge: 'LIVE',
                 priority: 400,
               });
               break;
@@ -120,11 +114,14 @@ export async function enrichGamesFromRss(games: Game[]): Promise<Game[]> {
           }
         }
 
-        if (!enriched.context?.seriesSummary) {
+        if (
+          !enriched.context?.seriesSummary
+          && (game.context?.phase === 'playoffs' || game.context?.phase === 'finals')
+        ) {
           for (const feed of summaryFeeds) {
             const items = feedItems.get(feed.id) ?? [];
             const hit = findTeamItem(items, game);
-            if (hit) {
+            if (hit && !isScoreboardNoiseText(hit.title)) {
               enriched = enrichGameContext(enriched, {
                 seriesSummary: hit.title.slice(0, 120),
                 priority: 250,
@@ -153,6 +150,7 @@ export async function rssCrossCheckFromFeeds(
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
+      if (isScoreboardNoiseText(item.title)) continue;
       const lower = text.toLowerCase();
       const isFinals = /nba finals|finals game|conference finals/i.test(lower);
       const mentions =
@@ -172,19 +170,14 @@ export async function rssCrossCheckFromFeeds(
   return null;
 }
 
-export async function fetchPlayerRumors(player: Player): Promise<PlayerRumor[]> {
+export async function fetchPlayerRumors(player: Player): Promise<string[]> {
   const feeds = RSS_FEEDS.filter((f) => f.role === 'player_rumors');
-  const rumors: PlayerRumor[] = [];
-  const seen = new Set<string>();
+  const rumors: string[] = [];
   for (const feed of feeds) {
     const items = await getFeedItems(feed);
     for (const item of items) {
       const text = `${item.title} ${item.description ?? ''}`;
-      if (!textMentionsPlayer(text, player.name)) continue;
-      const key = item.title.toLowerCase().trim();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      rumors.push(mapRssRumorItem(item, feed.name));
+      if (textMentionsPlayer(text, player.name)) rumors.push(item.title);
     }
   }
   return rumors.slice(0, 3);
@@ -199,7 +192,18 @@ export async function enrichRosterWithInjuries(roster: Player[]): Promise<Player
     injuryItems.push(...(await getFeedItems(feed)).slice(0, 30));
   }
 
-  return applyRosterInjuriesFromItems(roster, injuryItems);
+  return roster.map((player) => {
+    const hit = injuryItems.find((item) => {
+      const text = `${item.title} ${item.description ?? ''}`.toLowerCase();
+      return textMentionsPlayer(text, player.name) && /out|injury|questionable|doubtful|gtd|inactive|ruled out/i.test(text);
+    });
+    if (!hit) return player;
+    const note = hit.title.slice(0, 48);
+    return {
+      ...player,
+      injuryStatus: player.injuryStatus ?? note,
+    };
+  });
 }
 
 export async function enrichTeamsWithNotes(teams: ResolvedTeam[]): Promise<ResolvedTeam[]> {

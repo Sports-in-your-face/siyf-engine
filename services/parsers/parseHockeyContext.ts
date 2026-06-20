@@ -109,11 +109,7 @@ export function parseHockeyGameContext(
   homeAbbr: string,
 ): GameContext | undefined {
   const seasonType = event?.season?.type ?? competition?.season?.type;
-  const notes = Array.isArray(competition?.notes)
-    ? competition.notes
-    : Array.isArray(event?.competitions?.[0]?.notes)
-      ? event.competitions[0].notes
-      : [];
+  const notes = competition?.notes ?? event?.competitions?.[0]?.notes ?? [];
   const headline = notes.find((n: any) => n.type === 'event' || n.headline)?.headline
     ?? notes.find((n: any) => n.headline)?.headline;
 
@@ -132,10 +128,9 @@ export function parseHockeyGameContext(
   const seriesWins = parseSeriesWins(seriesSummary, awayAbbr, homeAbbr);
   const seriesRecords = seriesRecordFromCompetitors(competition?.competitors ?? []);
   const statusState = competition?.status?.type?.state ?? event?.status?.type?.state;
-  const broadcasts = competition?.broadcasts;
   const broadcast = competition?.broadcast
-    ?? (Array.isArray(broadcasts) ? broadcasts.find((b: any) => b.market === 'national')?.names?.join(', ') : undefined)
-    ?? (Array.isArray(broadcasts) ? broadcasts[0]?.names?.join(', ') : undefined);
+    ?? competition?.broadcasts?.find((b: any) => b.market === 'national')?.names?.join(', ')
+    ?? competition?.broadcasts?.[0]?.names?.join(', ');
 
   const badge = buildBadge(phase, round, gameNumber);
   const priority = computePriority(phase, round, gameNumber, statusState);

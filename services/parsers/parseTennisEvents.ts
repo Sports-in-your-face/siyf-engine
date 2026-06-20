@@ -3,7 +3,7 @@ import type { Game, Player, StatItem, Team } from '../../types';
 import { enrichGameWithTiming, extractEspnStartCandidates } from '../../utils/gameTime';
 import { pickOrderedStats } from '../../config/sportProfiles';
 import { coerceDisplayString, parseDisplayScore } from '../../utils/coerce';
-import { resolveCompetitorField } from '../../engine/acl';
+import { resolveEspnCompetitorField } from '../../engine/adjuster/espnResolver';
 import { resolveTennisAthleteAssets } from '../../utils/fighterAssets';
 import { applyTennisContextToSubtitle, parseTennisGameContext } from './parseTennisContext';
 import { ParseBatchAccumulator } from '../../engine/adjuster/recordParserBatch';
@@ -12,7 +12,7 @@ function parseAthleteCompetitor(comp: any, tour: 'ATP' | 'WTA'): Team {
   const athlete = comp.athlete ?? {};
   const { headshot, flag } = resolveTennisAthleteAssets(comp, tour);
   const record = comp.records?.[0]?.summary;
-  const name = coerceDisplayString(resolveCompetitorField(comp, 'teamName'), 'TBD');
+  const name = coerceDisplayString(resolveEspnCompetitorField(comp, 'teamName'), 'TBD');
   const abbr = athlete.flag?.abbreviation || athlete.shortName?.slice(0, 3)?.toUpperCase()
     || (name === 'TBD' ? 'TBD' : '—');
 
